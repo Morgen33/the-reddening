@@ -6,6 +6,38 @@ import { chapters, recordings, characters } from "@/db/schema";
 import { requireAuthor } from "@/lib/auth";
 import { getNextNumeral } from "@/lib/chapters";
 import { slugify } from "@/lib/copy";
+import { resolveCoords } from "@/lib/geocode";
+
+async function syncTurnedCharacter(opts: {
+  turnedId: string;
+  sireId: string | null;
+  occurredYear: number | null;
+  place: string | null;
+  lat: number | null;
+  lng: number | null;
+  isUpdate: boolean;
+}) {
+  const patch: {
+    status?: "fledgling" | "elder";
+    sireId?: string | null;
+    turnedYear?: number;
+    turnedPlace?: string;
+    turnedLat?: number;
+    turnedLng?: number;
+  } = {};
+
+  if (opts.sireId) {
+    patch.sireId = opts.sireId;
+    patch.status = opts.isUpdate ? "elder" : "fledgling";
+  }
+  if (opts.occurredYear != null) patch.turnedYear = opts.occurredYear;
+  if (opts.place) patch.turnedPlace = opts.place;
+  if (opts.lat != null) patch.turnedLat = opts.lat;
+  if (opts.lng != null) patch.turnedLng = opts.lng;
+
+  if (Object.keys(patch).length === 0) return;
+  await db.update(characters).set(patch).where(eq(characters.id, opts.turnedId));
+}
 
 export async function POST(req: Request) {
   try {
@@ -24,8 +56,6 @@ export async function POST(req: Request) {
       occurredYear,
       occurredFuzzy,
       place,
-      lat,
-      lng,
       tags,
       bodyHtml,
       authoringMode,
@@ -39,6 +69,18 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
+
+    const rawLat =
+      body.lat != null && body.lat !== "" ? Number(body.lat) : null;
+    const rawLng =
+      body.lng != null && body.lng !== "" ? Number(body.lng) : null;
+    const coords = await resolveCoords({
+      place: place || null,
+      lat: rawLat != null && !Number.isNaN(rawLat) ? rawLat : null,
+      lng: rawLng != null && !Number.isNaN(rawLng) ? rawLng : null,
+    });
+    const lat = coords.lat;
+    const lng = coords.lng;
 
     // Update existing chapter
     if (existingId) {
@@ -66,7 +108,12 @@ export async function POST(req: Request) {
       }
 
       const now = new Date().toISOString();
-      const nextStatus = status === "sealed" ? "sealed" : status === "draft" ? "draft" : current.status;
+      const nextStatus =
+        status === "sealed"
+          ? "sealed"
+          : status === "draft"
+            ? "draft"
+            : current.status;
 
       await db
         .update(chapters)
@@ -78,36 +125,34 @@ export async function POST(req: Request) {
           occurredYear: occurredYear ?? null,
           occurredFuzzy: occurredFuzzy ?? null,
           place: place ?? null,
-          lat: lat ?? null,
-          lng: lng ?? null,
+          lat,
+          lng,
           bodyHtml: bodyHtml ?? "",
           authoringMode: authoringMode ?? current.authoringMode,
           status: nextStatus,
           tags: tags ?? current.tags,
           sealedAt:
-            nextStatus === "sealed"
-              ? current.sealedAt ?? now
-              : null,
+            nextStatus === "sealed" ? (current.sealedAt ?? now) : null,
         })
         .where(eq(chapters.id, existingId));
 
-      if (nextStatus === "sealed" && sireId) {
-        const patch: {
-          status: "fledgling" | "elder";
-          sireId: string;
-          turnedYear?: number;
-          turnedPlace?: string;
-          turnedLat?: number;
-          turnedLng?: number;
-        } = { status: "elder", sireId };
-        if (occurredYear != null) patch.turnedYear = occurredYear;
-        if (place) patch.turnedPlace = place;
-        if (lat != null) patch.turnedLat = lat;
-        if (lng != null) patch.turnedLng = lng;
-        await db.update(characters).set(patch).where(eq(characters.id, turnedId));
+      if (nextStatus === "sealed") {
+        await syncTurnedCharacter({
+          turnedId,
+          sireId: sireId ?? null,
+          occurredYear: occurredYear ?? null,
+          place: place ?? null,
+          lat,
+          lng,
+          isUpdate: true,
+        });
       }
 
-      return NextResponse.json({ id: existingId, slug, numeral: current.numeral });
+      return NextResponse.json({
+        id: existingId,
+        slug,
+        numeral: current.numeral,
+      });
     }
 
     let slug = body.slug || slugify(title);
@@ -123,6 +168,7 @@ export async function POST(req: Request) {
     const id = nanoid();
     const numeral = await getNextNumeral();
     const now = new Date().toISOString();
+    const sealed = status === "sealed";
 
     await db.insert(chapters).values({
       id,
@@ -134,30 +180,26 @@ export async function POST(req: Request) {
       occurredYear: occurredYear ?? null,
       occurredFuzzy: occurredFuzzy ?? null,
       place: place ?? null,
-      lat: lat ?? null,
-      lng: lng ?? null,
+      lat,
+      lng,
       bodyHtml: bodyHtml ?? "",
       body: { type: "doc" },
       authoringMode: authoringMode ?? "quill",
-      status: status === "sealed" ? "sealed" : "draft",
+      status: sealed ? "sealed" : "draft",
       tags: tags ?? [],
-      sealedAt: status === "sealed" ? now : null,
+      sealedAt: sealed ? now : null,
     });
 
-    if (status === "sealed" && sireId) {
-      const patch: {
-        status: "fledgling";
-        sireId: string;
-        turnedYear?: number;
-        turnedPlace?: string;
-        turnedLat?: number;
-        turnedLng?: number;
-      } = { status: "fledgling", sireId };
-      if (occurredYear != null) patch.turnedYear = occurredYear;
-      if (place) patch.turnedPlace = place;
-      if (lat != null) patch.turnedLat = lat;
-      if (lng != null) patch.turnedLng = lng;
-      await db.update(characters).set(patch).where(eq(characters.id, turnedId));
+    if (sealed) {
+      await syncTurnedCharacter({
+        turnedId,
+        sireId: sireId ?? null,
+        occurredYear: occurredYear ?? null,
+        place: place ?? null,
+        lat,
+        lng,
+        isUpdate: false,
+      });
     }
 
     if (recording?.audioUrl) {

@@ -53,25 +53,28 @@ export async function getTurningsForGlobe() {
   const charMap = Object.fromEntries(chars.map((c) => [c.id, c]));
 
   const fromChapters = sealed
-    .filter(
-      (c) =>
-        c.status === "sealed" &&
-        c.lat != null &&
-        c.lng != null &&
-        c.occurredYear != null
-    )
-    .map((c) => ({
-      id: c.id,
-      slug: c.slug,
-      title: c.title,
-      year: c.occurredYear!,
-      place: c.place ?? "Unknown",
-      lat: c.lat!,
-      lng: c.lng!,
-      turnedId: c.turnedId,
-      sireId: c.sireId ?? (c.turnedId ? charMap[c.turnedId]?.sireId ?? null : null),
-      turnedName: c.turnedId ? charMap[c.turnedId]?.name ?? "?" : "?",
-    }));
+    .filter((c) => c.status === "sealed" && c.occurredYear != null)
+    .map((c) => {
+      const turned = c.turnedId ? charMap[c.turnedId] : null;
+      const lat = c.lat ?? turned?.turnedLat ?? null;
+      const lng = c.lng ?? turned?.turnedLng ?? null;
+      if (lat == null || lng == null) return null;
+      return {
+        id: c.id,
+        slug: c.slug,
+        title: c.title,
+        year: c.occurredYear!,
+        place: c.place ?? turned?.turnedPlace ?? "Unknown",
+        lat,
+        lng,
+        turnedId: c.turnedId,
+        sireId:
+          c.sireId ??
+          (c.turnedId ? charMap[c.turnedId]?.sireId ?? null : null),
+        turnedName: turned?.name ?? "?",
+      };
+    })
+    .filter((p): p is NonNullable<typeof p> => p != null);
 
   const chapterTurnedIds = new Set(
     fromChapters.map((p) => p.turnedId).filter(Boolean)

@@ -12,15 +12,19 @@ type ConfessionResult = {
 export function ConfessionRecorder({
   onAccept,
 }: {
-  onAccept: (result: ConfessionResult & { chosen: "raw" | "inked" | "splice"; text: string }) => void;
+  onAccept: (
+    result: ConfessionResult & {
+      chosen: "raw" | "inked" | "splice";
+      text: string;
+    }
+  ) => void;
 }) {
   const [recording, setRecording] = useState(false);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [levels, setLevels] = useState<number[]>(Array(24).fill(0.15));
   const [result, setResult] = useState<ConfessionResult | null>(null);
-  const [rawEdit, setRawEdit] = useState("");
-  const [inkEdit, setInkEdit] = useState("");
+  const [draft, setDraft] = useState("");
 
   const mediaRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -86,8 +90,7 @@ export function ConfessionRecorder({
           }
           const data = (await res.json()) as ConfessionResult;
           setResult(data);
-          setRawEdit(data.transcriptRaw);
-          setInkEdit(data.transcriptInked);
+          setDraft(data.transcriptInked || data.transcriptRaw);
         } catch (err) {
           setError(err instanceof Error ? err.message : "Recording failed");
         } finally {
@@ -99,7 +102,7 @@ export function ConfessionRecorder({
       recorder.start();
       setRecording(true);
     } catch {
-      setError("Microphone access is required for The Confession.");
+      setError("Microphone access is required to speak the story.");
     }
   };
 
@@ -109,21 +112,13 @@ export function ConfessionRecorder({
   };
 
   return (
-    <div className="space-y-6">
-      <div className="border border-gilt/40 bg-ash/80 p-6">
-        <p className="font-ledger mb-4 text-xs tracking-[0.18em] text-gilt uppercase">
-          The Confession
-        </p>
-        <p className="mb-6 text-sm text-vellum-dim">
-          Speak the turning as you would on a Space. We keep the audio and set a
-          light ink beside the raw speech.
-        </p>
-
-        <div className="mb-6 flex h-16 items-end justify-center gap-1">
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-4 border border-gilt/30 bg-ash/60 px-4 py-3">
+        <div className="flex h-10 flex-1 items-end gap-0.5">
           {levels.map((l, i) => (
             <span
               key={i}
-              className="w-1.5 rounded-sm bg-arterial transition-[height] duration-75"
+              className="w-1 rounded-sm bg-arterial transition-[height] duration-75"
               style={{
                 height: `${l * 100}%`,
                 opacity: recording ? 0.5 + l * 0.5 : 0.35,
@@ -131,103 +126,51 @@ export function ConfessionRecorder({
             />
           ))}
         </div>
-
-        <div className="flex justify-center">
-          {!recording ? (
-            <button
-              type="button"
-              onClick={start}
-              disabled={processing}
-              className="btn-seal"
-            >
-              {processing ? "Setting in ink…" : "Begin confession"}
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={stop}
-              className="btn-seal bg-arterial"
-            >
-              End confession
-            </button>
-          )}
-        </div>
-        {error && (
-          <p className="mt-4 text-center text-sm text-arterial">{error}</p>
+        {!recording ? (
+          <button
+            type="button"
+            onClick={start}
+            disabled={processing}
+            className="btn-seal shrink-0"
+          >
+            {processing ? "Setting in ink…" : result ? "Record again" : "Record"}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={stop}
+            className="btn-seal shrink-0 bg-arterial"
+          >
+            Stop
+          </button>
         )}
       </div>
 
+      {error && <p className="text-sm text-arterial">{error}</p>}
+
       {result && (
-        <div className="grid gap-4 md:grid-cols-2">
-          <label className="block">
-            <span className="font-ledger mb-2 block text-xs tracking-wider text-vellum-dim uppercase">
-              Raw speech
-            </span>
-            <textarea
-              value={rawEdit}
-              onChange={(e) => setRawEdit(e.target.value)}
-              rows={12}
-              className="w-full border border-gilt/30 bg-ash p-4 text-sm text-vellum focus:border-arterial focus:outline-none"
-            />
-            <button
-              type="button"
-              className="btn-seal mt-3"
-              onClick={() =>
-                onAccept({
-                  ...result,
-                  chosen: "raw",
-                  text: rawEdit,
-                  transcriptRaw: rawEdit,
-                  transcriptInked: inkEdit,
-                })
-              }
-            >
-              Accept raw
-            </button>
-          </label>
-          <label className="block">
-            <span className="font-ledger mb-2 block text-xs tracking-wider text-vellum-dim uppercase">
-              Set in ink
-            </span>
-            <textarea
-              value={inkEdit}
-              onChange={(e) => setInkEdit(e.target.value)}
-              rows={12}
-              className="w-full border border-gilt/30 bg-ash p-4 text-sm text-vellum focus:border-arterial focus:outline-none"
-            />
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                type="button"
-                className="btn-seal"
-                onClick={() =>
-                  onAccept({
-                    ...result,
-                    chosen: "inked",
-                    text: inkEdit,
-                    transcriptRaw: rawEdit,
-                    transcriptInked: inkEdit,
-                  })
-                }
-              >
-                Accept ink
-              </button>
-              <button
-                type="button"
-                className="btn-seal bg-transparent"
-                onClick={() =>
-                  onAccept({
-                    ...result,
-                    chosen: "splice",
-                    text: `${inkEdit}\n\n—\n\n${rawEdit}`,
-                    transcriptRaw: rawEdit,
-                    transcriptInked: inkEdit,
-                  })
-                }
-              >
-                Splice both
-              </button>
-            </div>
-          </label>
+        <div className="space-y-3">
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={6}
+            className="w-full border border-gilt/30 bg-ash p-4 text-sm text-vellum focus:border-arterial focus:outline-none"
+          />
+          <button
+            type="button"
+            className="btn-seal"
+            onClick={() =>
+              onAccept({
+                ...result,
+                chosen: "inked",
+                text: draft,
+                transcriptRaw: result.transcriptRaw,
+                transcriptInked: draft,
+              })
+            }
+          >
+            Use in story
+          </button>
         </div>
       )}
     </div>
