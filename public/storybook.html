@@ -59,16 +59,25 @@
     font-family: inherit; font-size: 0.68rem; letter-spacing: 0.3em;
     text-transform: uppercase; color: rgba(200, 180, 160, 0.55);
     cursor: pointer; padding: 0.5rem 0.8rem;
-    opacity: 1; transition: opacity 0.5s ease, color 0.25s ease;
+    opacity: 1; transition: opacity 0.5s ease, color 0.25s ease, background 0.25s ease, border-color 0.25s ease;
     text-decoration: none;
   }
   #close-btn { opacity: 0; }
   #close-btn.visible, #nav-prev.visible, #nav-next.visible { opacity: 1; }
-  #close-btn:hover, #nav-prev:hover, #nav-next:hover, #exit-link:hover {
+  #close-btn:hover, #nav-prev:hover, #nav-next:hover {
     color: rgba(200, 180, 160, 0.9);
   }
   #exit-link {
-    color: rgba(168, 55, 55, 0.75);
+    color: #e3d5b8;
+    background: rgba(92, 10, 17, 0.92);
+    border: 1px solid rgba(156, 122, 60, 0.85);
+    padding: 0.55rem 1.1rem;
+    letter-spacing: 0.18em;
+  }
+  #exit-link:hover {
+    color: #e3d5b8;
+    background: rgba(168, 18, 31, 0.95);
+    border-color: rgba(168, 18, 31, 0.95);
   }
   #nav-row { display: flex; gap: 1rem; }
 </style>
@@ -82,7 +91,7 @@
     <div id="page-counter"></div>
   </div>
   <div id="ui-bottom">
-    <a id="exit-link" href="/">← Kronika</a>
+    <a id="exit-link" href="/">← Home</a>
     <button id="close-btn" type="button">Close</button>
     <div id="hint">Click to open</div>
     <div id="nav-row">

@@ -1,8 +1,12 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { replayColdOpen } from "@/components/cold-open/ColdOpen";
 
 export function SiteFooter() {
+  const pathname = usePathname();
+  if (pathname.startsWith("/tome")) return null;
+
   return (
     <footer className="relative z-20 mt-24 border-t border-gilt/20 px-6 py-10">
       <div className="mx-auto flex max-w-6xl flex-col gap-3 md:flex-row md:items-center md:justify-between">
