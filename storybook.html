@@ -1,0 +1,1839 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>The Reddening — A Vampire Storybook</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    background: #9a9288;
+    font-family: "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    color: #c8b8a0;
+    cursor: grab;
+  }
+  body.dragging { cursor: grabbing; }
+  #c { display: block; width: 100%; height: 100%; }
+  #vignette {
+    pointer-events: none; position: fixed; inset: 0; z-index: 2;
+    background: radial-gradient(ellipse at center, transparent 60%, rgba(60,54,48,0.25) 100%);
+  }
+  #ui {
+    position: fixed; inset: 0; z-index: 10; pointer-events: none;
+    display: flex; flex-direction: column; justify-content: space-between;
+    padding: 1.6rem 2rem;
+  }
+  #ui-top {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    opacity: 0; transition: opacity 0.8s ease;
+  }
+  #ui-top.visible { opacity: 1; }
+  #story-title {
+    font-size: 0.72rem; letter-spacing: 0.38em; text-transform: uppercase;
+    color: rgba(200, 180, 160, 0.55); font-weight: 400;
+  }
+  #page-counter {
+    font-size: 0.68rem; letter-spacing: 0.28em; text-transform: uppercase;
+    color: rgba(200, 180, 160, 0.4);
+  }
+  #ui-bottom {
+    display: flex; justify-content: center; align-items: center; gap: 1.5rem;
+  }
+  #hint {
+    font-size: 0.75rem; letter-spacing: 0.32em; text-transform: uppercase;
+    color: rgba(168, 40, 40, 0.0); pointer-events: none;
+    transition: color 1.2s ease, text-shadow 1.2s ease;
+  }
+  #hint.visible {
+    color: rgba(168, 55, 55, 0.7);
+    text-shadow: 0 0 18px rgba(120, 20, 20, 0.45);
+    animation: pulseHint 2.4s ease-in-out infinite;
+  }
+  @keyframes pulseHint {
+    0%, 100% { opacity: 0.55; }
+    50% { opacity: 1; }
+  }
+  #close-btn, #nav-prev, #nav-next {
+    pointer-events: auto; background: none; border: none;
+    font-family: inherit; font-size: 0.68rem; letter-spacing: 0.3em;
+    text-transform: uppercase; color: rgba(200, 180, 160, 0.45);
+    cursor: pointer; padding: 0.5rem 0.8rem;
+    opacity: 0; transition: opacity 0.5s ease, color 0.25s ease;
+  }
+  #close-btn.visible, #nav-prev.visible, #nav-next.visible { opacity: 1; }
+  #close-btn:hover, #nav-prev:hover, #nav-next:hover { color: rgba(200, 180, 160, 0.85); }
+  #nav-row { display: flex; gap: 1rem; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="vignette"></div>
+<div id="ui">
+  <div id="ui-top">
+    <div id="story-title"></div>
+    <div id="page-counter"></div>
+  </div>
+  <div id="ui-bottom">
+    <button id="close-btn" type="button">Close</button>
+    <div id="hint">Click to open</div>
+    <div id="nav-row">
+      <button id="nav-prev" class="nav-btn" type="button" style="display:none">← Prev</button>
+      <button id="nav-next" class="nav-btn" type="button" style="display:none">Next →</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* =============================================================================
+   CONFIG — all tunable knobs live here
+   ============================================================================= */
+const CONFIG = {
+  // Camera
+  fov: 50,
+  camDist: 4.2,
+  camPolar: Math.PI / 2 - (35 * Math.PI / 180), // ~35° looking down
+  camAzimuth: 0.35,
+  openCamDist: 2.7,
+  openCamPolar: Math.PI / 2 - (28 * Math.PI / 180),
+  openCamAzimuth: 0.12,
+  orbitDamping: 0.08,
+  polarMin: 0.35,
+  polarMax: 1.35,
+  parallaxAmp: 0.04,
+
+  // Book dimensions
+  bookW: 1.4,
+  bookH: 2.0,
+  bookD: 0.35,
+  coverThick: 0.04,
+
+  // Seal
+  sealSize: 0.38,
+  sealY: 0.32,          // above cover center, clear of clasp
+  sealCrackAngle: 0.42, // radians halves swing open
+  sealEmissive: 0,
+  sealLightIntensity: 0.12,
+
+  // Lights
+  keyColor: 0xb89a6a,   // sickly desaturated amber
+  keyIntensity: 2.1,
+  rimColor: 0x6a7a8a,
+  rimIntensity: 0.55,
+  ambientIntensity: 0.7,
+  bounceColor: 0x6b0f0f,
+  bounceIntensity: 0.06,
+
+  // Timings (ms)
+  hintDelay: 2000,
+  tensionMs: 200,
+  sealCrackMs: 550,
+  shardLifeMs: 1400,
+  coverOpenMs: 1600,
+  coverCloseMs: 1400,
+  pageTurnMs: 900,
+  openAngle: -155 * Math.PI / 180,
+  openOvershoot: 0.04,
+  bookTip: 0.95, // radians tipped toward camera when open
+
+  // Pages
+  pageFontSize: 22,
+  pageTitleSize: 28,
+  dropCapSize: 72,
+  pageMargin: 48,
+  pageCanvasW: 640,
+  pageCanvasH: 900,
+  segmentsX: 24,
+  segmentsY: 16,
+};
+
+/* =============================================================================
+   STORIES — swap real content here
+   Paste full story text into `pages` as a single string (or array of strings);
+   autoPaginate() will split long strings into page-sized chunks.
+   ============================================================================= */
+const STORIES = [
+  {
+    title: "The Letter Unopened",
+    pages: [
+`My dearest sister,
+
+I write to you from a carriage that will not stop. The driver does not answer when I knock upon the partition, and the windows show only fog pressed flat against the glass like breath held too long. I boarded at dusk, thinking myself bound for the coast. The ticket in my coat pocket names no station I recognize.
+
+There is a woman seated across from me who has not blinked since the hour struck. Her gloves are the color of dried roses. When she smiles, I see nothing behind her teeth but night. She asked, quite gently, whether I had ever tasted a memory that was not my own. I said I had not. She seemed disappointed, as if I had failed a courtesy.
+
+Outside, the road has turned to water. I can hear it licking the wheels. The woman offers me a thimble of something dark and sweet. She says it will help me sleep through the crossing. I have not drunk it. I have not slept. My reflection in the window has begun to lag behind my movements by half a second, and I fear that if I look away, it will not catch up.
+
+If this letter reaches you, burn it. Do not open the small parcel that travels with it. The wax upon that parcel is warm still, and I did not seal it myself.
+
+Yours, in what remains of daylight,
+E.`
+    ]
+  },
+  {
+    title: "Beneath the Chapel Floor",
+    pages: [
+`I woke with soil in my mouth and a hymn in my ears that no living choir was singing. The stones above me were damp with something that was not rain. My fingers found the edge of a coffin lid already ajar, as though whoever buried me had expected me back.
+
+The chapel was empty except for the smell of old iron and lilies left too long. Candle stubs still smoked in their sockets. On the altar lay a silver cup, overturned, and a stain that had dried in the shape of a hand reaching for the door. I touched my throat and found two small mouths where none had been.
+
+Outside, the village bells were ringing the wrong hour. Dogs would not look at me. A child pointed and was pulled indoors so quickly the door bruised the frame. I walked to the well and saw, in the black circle of water, a face that wore my features like a borrowed coat — too neat, too still, smiling with a patience I have never owned.
+
+I remember hunger then, sudden and precise as a key turning. Not for bread. For the warmth moving behind shuttered windows. I pressed my palm to the chapel door and left a print the color of sealing wax. By morning it will be gone, or the door will be. I am not certain which would be kinder.
+
+If you find these pages beneath the floorboards, do not dig further. The thing that wrote them is listening for the scrape of your nails.`
+    ]
+  },
+  {
+    title: "The Red Hour",
+    pages: [
+`Journal, the third night of the red moon.
+
+They told us not to look up. They said the color was only dust in the upper air, a trick of the harvest fires. But the light that fell through my shutters painted the floorboards the shade of a fresh bruise, and every mirror in the house turned its face to the wall of its own accord.
+
+I kept the watch as instructed: salt on the sill, iron nail above the latch, prayer said without conviction. At the stroke of what should have been midnight, the clocks all stopped together. In the silence I heard someone counting upstairs — soft, careful, as if numbering pearls. There is no one upstairs. There has been no one upstairs since Mother left for the fen and did not return with the tide.
+
+The counting reached thirteen and began again. I opened the bedroom door. The corridor was the length of a held breath. At the far end stood a figure in Mother's traveling cloak, only taller, and where the hood should have shown her hair there was only a wet darkness that dripped without sound onto the runner. It raised a hand in greeting. The nails were the wrong length.
+
+I shut the door. I am writing this by the last inch of candle. The counting has started once more, closer now, just beyond the wood. When the candle dies I will know whether the salt held. If these lines end mid-sentence, assume it did not. Assume the red hour found its way in. Assume I answered when it knocked, because something in me — something that has been waiting since the first drop of that wrong-colored moonlight — wanted very badly to open the door.`
+    ]
+  }
+];
+
+/* =============================================================================
+   ALL DECLARATIONS — top of script to avoid TDZ (do not move below handlers)
+   ============================================================================= */
+let scene, camera, renderer, clock;
+let bookGroup, coverGroup, spineGroup, pageBlock, claspPivot;
+let sealGroup, sealHalfL, sealHalfR, sealLight, bounceLight;
+let keyLight, rimLight, ambientLight;
+let pageMesh, underPageMesh, turningPageMesh;
+let dustPoints, contactShadow;
+let shardMeshes = [];
+let dustPuffs = [];
+
+let canvasEl, hintEl, closeBtn, storyTitleEl, pageCounterEl, uiTop, navPrev, navNext;
+
+let raycaster, mouseNDC;
+let isDragging = false;
+let dragPrevX = 0, dragPrevY = 0;
+let azimuth = CONFIG.camAzimuth;
+let polar = CONFIG.camPolar;
+let targetAzimuth = CONFIG.camAzimuth;
+let targetPolar = CONFIG.camPolar;
+let camDist = CONFIG.camDist;
+let targetCamDist = CONFIG.camDist;
+let parallaxX = 0, parallaxY = 0;
+let targetParallaxX = 0, targetParallaxY = 0;
+
+let bookState = 'closed'; // closed | cracking | opening | open | closing | turning
+let sealBroken = false;
+let coverAngle = 0;
+let coverAnim = null;
+let sealAnim = null;
+let pageAnim = null;
+let hintShown = false;
+let loadTime = 0;
+
+let currentStory = 0;
+let currentPage = 0;   // index into flatPages (one page at a time)
+let flatPages = [];    // { storyIndex, localPage, text, isFirst }
+let totalPages = 0;
+
+let pointerDownPos = null;
+let pointerMoved = false;
+let touchStartX = 0;
+
+let leatherMap, leatherBump, leatherRough;
+let pageEdgeMap;
+let parchmentMaps = []; // disposable canvas textures per visible page
+let ironMap;
+let sealBumpMap, sealColorMap;
+
+const _tmpV = new THREE.Vector3();
+const _tmpV2 = new THREE.Vector3();
+const _tmpM = new THREE.Matrix4();
+const _tmpQ = new THREE.Quaternion();
+const _tmpE = new THREE.Euler();
+
+/* =============================================================================
+   MATH / EASING
+   ============================================================================= */
+function easeInOutCubic(t) {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+function easeOutBack(t) {
+  const c1 = 1.70158;
+  const c3 = c1 + 1;
+  return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+}
+function lerp(a, b, t) { return a + (b - a) * t; }
+function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+function rand(a, b) { return a + Math.random() * (b - a); }
+
+/* =============================================================================
+   NOISE (value noise for procedural textures)
+   ============================================================================= */
+function hash2(x, y) {
+  const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
+  return s - Math.floor(s);
+}
+function smoothstep(t) { return t * t * (3 - 2 * t); }
+function valueNoise(x, y) {
+  const x0 = Math.floor(x), y0 = Math.floor(y);
+  const fx = x - x0, fy = y - y0;
+  const v00 = hash2(x0, y0), v10 = hash2(x0 + 1, y0);
+  const v01 = hash2(x0, y0 + 1), v11 = hash2(x0 + 1, y0 + 1);
+  const sx = smoothstep(fx), sy = smoothstep(fy);
+  return lerp(lerp(v00, v10, sx), lerp(v01, v11, sx), sy);
+}
+function fbm(x, y, oct) {
+  let v = 0, a = 0.5, f = 1;
+  for (let i = 0; i < oct; i++) {
+    v += a * valueNoise(x * f, y * f);
+    a *= 0.5; f *= 2;
+  }
+  return v;
+}
+
+/* =============================================================================
+   PROCEDURAL TEXTURES
+   ============================================================================= */
+function makeLeatherTextures() {
+  const S = 512;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const ctx = c.getContext('2d');
+  const img = ctx.createImageData(S, S);
+  const d = img.data;
+
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const u = x / S, v = y / S;
+      let n = fbm(u * 8, v * 12, 5);
+      n = n * 0.7 + fbm(u * 24, v * 30, 3) * 0.3;
+
+      // Spine crease (left edge of front cover texture — darker band)
+      const spine = Math.exp(-Math.pow(u * 18, 2)) * 0.35;
+      // Edge darkening
+      const edge = Math.min(u, 1 - u, v, 1 - v);
+      const edgeDark = Math.pow(1 - clamp(edge * 8, 0, 1), 2) * 0.4;
+      // Corner rub highlights
+      const c1 = Math.exp(-(u * u + v * v) * 40) * 0.25;
+      const c2 = Math.exp(-((1 - u) * (1 - u) + v * v) * 40) * 0.22;
+      const c3 = Math.exp(-(u * u + (1 - v) * (1 - v)) * 40) * 0.2;
+      const c4 = Math.exp(-((1 - u) * (1 - u) + (1 - v) * (1 - v)) * 40) * 0.22;
+
+      // Cracks
+      const crack = Math.abs(fbm(u * 6, v * 4, 2) - 0.5);
+      const crackLine = crack < 0.03 ? (0.03 - crack) * 8 : 0;
+
+      let val = 0.22 + n * 0.28 - spine - edgeDark - crackLine + c1 + c2 + c3 + c4;
+      val = clamp(val, 0.08, 0.62);
+      const i = (y * S + x) * 4;
+      const r = val * 72, g = val * 48, b = val * 38;
+      d[i] = r; d[i + 1] = g; d[i + 2] = b; d[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+
+  const map = new THREE.CanvasTexture(c);
+  map.wrapS = map.wrapT = THREE.RepeatWrapping;
+
+  // Bump from luminance
+  const bumpC = document.createElement('canvas');
+  bumpC.width = bumpC.height = S;
+  const bctx = bumpC.getContext('2d');
+  bctx.drawImage(c, 0, 0);
+  const bump = new THREE.CanvasTexture(bumpC);
+  bump.wrapS = bump.wrapT = THREE.RepeatWrapping;
+
+  // Roughness: cracks = rougher, rubbed corners = smoother
+  const roughC = document.createElement('canvas');
+  roughC.width = roughC.height = S;
+  const rctx = roughC.getContext('2d');
+  const rimg = rctx.createImageData(S, S);
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const u = x / S, v = y / S;
+      const n = fbm(u * 10, v * 14, 4);
+      const corner = Math.exp(-(u * u + v * v) * 30)
+        + Math.exp(-((1 - u) * (1 - u) + (1 - v) * (1 - v)) * 30);
+      let rough = 0.75 + n * 0.2 - corner * 0.35;
+      rough = clamp(rough, 0.3, 0.95) * 255;
+      const i = (y * S + x) * 4;
+      rimg.data[i] = rimg.data[i + 1] = rimg.data[i + 2] = rough;
+      rimg.data[i + 3] = 255;
+    }
+  }
+  rctx.putImageData(rimg, 0, 0);
+  const rough = new THREE.CanvasTexture(roughC);
+
+  return { map, bump, rough };
+}
+
+function makePageEdgeTexture() {
+  const W = 256, H = 512;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#c4a574';
+  ctx.fillRect(0, 0, W, H);
+
+  for (let y = 0; y < H; y++) {
+    const fox = Math.pow(y / H, 1.4);
+    const base = 180 - fox * 50 + (hash2(0, y) - 0.5) * 20;
+    const lineH = 1 + (hash2(1, y) > 0.7 ? 1 : 0);
+    const wobble = (hash2(2, y) - 0.5) * 4;
+    ctx.fillStyle = `rgb(${base | 0},${(base * 0.82) | 0},${(base * 0.55) | 0})`;
+    ctx.fillRect(wobble, y, W, lineH);
+
+    // Fine paper lines
+    if (y % 2 === 0) {
+      ctx.fillStyle = `rgba(60,40,20,${0.08 + hash2(3, y) * 0.08})`;
+      ctx.fillRect(0, y, W, 1);
+    }
+  }
+
+  // Irregular dark stains near fore-edge (right side of texture)
+  for (let s = 0; s < 5; s++) {
+    const sx = W * (0.55 + hash2(s, 10) * 0.4);
+    const sy = H * (0.15 + hash2(s, 20) * 0.7);
+    const sr = 8 + hash2(s, 30) * 22;
+    const grd = ctx.createRadialGradient(sx, sy, 0, sx, sy, sr);
+    grd.addColorStop(0, `rgba(40,22,10,${0.35 + hash2(s, 40) * 0.25})`);
+    grd.addColorStop(1, 'rgba(40,22,10,0)');
+    ctx.fillStyle = grd;
+    ctx.beginPath();
+    ctx.ellipse(sx, sy, sr, sr * (0.5 + hash2(s, 50)), hash2(s, 60) * Math.PI, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  return tex;
+}
+
+function makeIronTexture() {
+  const S = 128;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const ctx = c.getContext('2d');
+  const img = ctx.createImageData(S, S);
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const n = fbm(x / S * 6, y / S * 6, 4);
+      const scratch = Math.abs(Math.sin(y * 0.4 + n * 8)) > 0.98 ? 40 : 0;
+      const v = (28 + n * 40 + scratch) | 0;
+      const i = (y * S + x) * 4;
+      img.data[i] = v; img.data[i + 1] = v; img.data[i + 2] = v + 4; img.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  // Dried residue blot
+  ctx.fillStyle = 'rgba(40, 10, 8, 0.55)';
+  ctx.beginPath();
+  ctx.ellipse(S * 0.6, S * 0.7, 18, 10, 0.4, 0, Math.PI * 2);
+  ctx.fill();
+  return new THREE.CanvasTexture(c);
+}
+
+function makeSealBumpTexture() {
+  const S = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const ctx = c.getContext('2d');
+
+  // Color map: arterial wax with a darker stamped V
+  const grd = ctx.createRadialGradient(S / 2, S / 2, 4, S / 2, S / 2, S * 0.5);
+  grd.addColorStop(0, '#b81e1e');
+  grd.addColorStop(0.55, '#8f1414');
+  grd.addColorStop(1, '#5c0c0c');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, S, S);
+
+  // Soft rim darkening
+  const rim = ctx.createRadialGradient(S / 2, S / 2, S * 0.38, S / 2, S / 2, S * 0.5);
+  rim.addColorStop(0, 'rgba(0,0,0,0)');
+  rim.addColorStop(1, 'rgba(0,0,0,0.35)');
+  ctx.fillStyle = rim;
+  ctx.fillRect(0, 0, S, S);
+
+  // Simple stamped V — darker wax in the recess
+  ctx.fillStyle = '#3a0808';
+  ctx.font = 'bold 130px "Palatino Linotype", Palatino, Georgia, serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('V', S / 2, S / 2 + 8);
+
+  const map = new THREE.CanvasTexture(c);
+
+  // Bump: same V dark = recessed
+  const bc = document.createElement('canvas');
+  bc.width = bc.height = S;
+  const bctx = bc.getContext('2d');
+  bctx.fillStyle = '#d8d8d8';
+  bctx.fillRect(0, 0, S, S);
+  const dome = bctx.createRadialGradient(S / 2, S / 2, 8, S / 2, S / 2, S * 0.48);
+  dome.addColorStop(0, '#f0f0f0');
+  dome.addColorStop(1, '#a0a0a0');
+  bctx.fillStyle = dome;
+  bctx.beginPath();
+  bctx.arc(S / 2, S / 2, S * 0.48, 0, Math.PI * 2);
+  bctx.fill();
+  bctx.fillStyle = '#202020';
+  bctx.font = 'bold 130px "Palatino Linotype", Palatino, Georgia, serif';
+  bctx.textAlign = 'center';
+  bctx.textBaseline = 'middle';
+  bctx.fillText('V', S / 2, S / 2 + 8);
+  const bump = new THREE.CanvasTexture(bc);
+
+  return { map: map, bump: bump };
+}
+
+function makeParchmentTextures() {
+  const W = CONFIG.pageCanvasW, H = CONFIG.pageCanvasH;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const ctx = c.getContext('2d');
+
+  // Cream base
+  ctx.fillStyle = '#e8d9b8';
+  ctx.fillRect(0, 0, W, H);
+
+  // Blotchy sepia staining
+  for (let i = 0; i < 40; i++) {
+    const x = hash2(i, 1) * W;
+    const y = hash2(i, 2) * H;
+    const r = 20 + hash2(i, 3) * 80;
+    const grd = ctx.createRadialGradient(x, y, 0, x, y, r);
+    grd.addColorStop(0, `rgba(120,80,40,${0.08 + hash2(i, 4) * 0.12})`);
+    grd.addColorStop(1, 'rgba(120,80,40,0)');
+    ctx.fillStyle = grd;
+    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+
+  // Fiber grain
+  for (let y = 0; y < H; y += 2) {
+    ctx.fillStyle = `rgba(90,60,30,${0.03 + hash2(0, y) * 0.04})`;
+    ctx.fillRect(0, y, W, 1);
+  }
+
+  // Age edges
+  const edgeG = ctx.createLinearGradient(0, 0, W, 0);
+  edgeG.addColorStop(0, 'rgba(100,60,30,0.25)');
+  edgeG.addColorStop(0.08, 'rgba(100,60,30,0)');
+  edgeG.addColorStop(0.92, 'rgba(100,60,30,0)');
+  edgeG.addColorStop(1, 'rgba(100,60,30,0.28)');
+  ctx.fillStyle = edgeG;
+  ctx.fillRect(0, 0, W, H);
+
+  const map = new THREE.CanvasTexture(c);
+
+  // Alpha map — deckled / torn edge
+  const ac = document.createElement('canvas');
+  ac.width = W; ac.height = H;
+  const actx = ac.getContext('2d');
+  actx.fillStyle = '#fff';
+  actx.fillRect(0, 0, W, H);
+  actx.fillStyle = '#000';
+  const edge = 10;
+  for (let y = 0; y < H; y++) {
+    const left = edge + (fbm(0, y * 0.08, 3) - 0.5) * 14;
+    const right = W - edge - (fbm(5, y * 0.08, 3) - 0.5) * 14;
+    actx.fillRect(0, y, Math.max(0, left), 1);
+    actx.fillRect(right, y, W - right, 1);
+  }
+  for (let x = 0; x < W; x++) {
+    const top = edge + (fbm(x * 0.07, 0, 3) - 0.5) * 12;
+    const bot = H - edge - (fbm(x * 0.07, 8, 3) - 0.5) * 12;
+    actx.fillRect(x, 0, 1, Math.max(0, top));
+    actx.fillRect(x, bot, 1, H - bot);
+  }
+  const alpha = new THREE.CanvasTexture(ac);
+  return { map, alpha, canvas: c };
+}
+
+/* =============================================================================
+   TEXT / PAGINATION
+   ============================================================================= */
+function wrapText(ctx, text, maxWidth) {
+  const words = text.split(/\s+/);
+  const lines = [];
+  let line = '';
+  for (let i = 0; i < words.length; i++) {
+    const test = line ? line + ' ' + words[i] : words[i];
+    if (ctx.measureText(test).width > maxWidth && line) {
+      lines.push(line);
+      line = words[i];
+    } else {
+      line = test;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+function justifyLine(ctx, line, maxWidth, y, ink) {
+  const words = line.split(' ');
+  if (words.length < 2) {
+    const jy = y + (hash2(y, words[0].length) - 0.5) * 1.2;
+    ctx.fillStyle = ink;
+    ctx.fillText(line, CONFIG.pageMargin, jy);
+    return;
+  }
+  const natural = ctx.measureText(line).width;
+  const gap = (maxWidth - natural) / (words.length - 1);
+  let x = CONFIG.pageMargin;
+  for (let i = 0; i < words.length; i++) {
+    const jy = y + (hash2(x, y + i) - 0.5) * 1.4;
+    ctx.fillStyle = ink;
+    ctx.globalAlpha = 0.88 + hash2(i, y) * 0.12;
+    ctx.fillText(words[i], x, jy);
+    x += ctx.measureText(words[i]).width + gap + (i < words.length - 1 ? 0 : 0);
+    // advance: word width was included; add gap after each but last
+    if (i < words.length - 1) {
+      // x already needs gap — measureText already used; fix:
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawJustified(ctx, lines, startY, lineH, maxWidth, ink, skipLastJustify) {
+  for (let i = 0; i < lines.length; i++) {
+    const y = startY + i * lineH;
+    const isLast = i === lines.length - 1;
+    const words = lines[i].split(' ');
+    if (words.length < 2 || (skipLastJustify && isLast)) {
+      const jy = y + (hash2(i, 3) - 0.5) * 1.2;
+      ctx.globalAlpha = 0.9 + hash2(i, 7) * 0.1;
+      ctx.fillStyle = ink;
+      ctx.fillText(lines[i], CONFIG.pageMargin, jy);
+      ctx.globalAlpha = 1;
+      continue;
+    }
+    let totalW = 0;
+    for (const w of words) totalW += ctx.measureText(w).width;
+    const gap = (maxWidth - totalW) / (words.length - 1);
+    let x = CONFIG.pageMargin;
+    for (let wi = 0; wi < words.length; wi++) {
+      const jy = y + (hash2(wi, i + y) - 0.5) * 1.5;
+      ctx.globalAlpha = 0.88 + hash2(wi, i) * 0.12;
+      ctx.fillStyle = ink;
+      ctx.fillText(words[wi], x, jy);
+      x += ctx.measureText(words[wi]).width + gap;
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
+/** Auto-paginate a long string into page-sized chunks using canvas metrics. */
+function autoPaginate(text, options) {
+  const opts = options || {};
+  const fontSize = opts.fontSize || CONFIG.pageFontSize;
+  const title = opts.title || '';
+  const isFirst = opts.isFirst !== false;
+  const W = CONFIG.pageCanvasW;
+  const H = CONFIG.pageCanvasH;
+  const margin = CONFIG.pageMargin;
+  const maxW = W - margin * 2;
+  const lineH = fontSize * 1.55;
+
+  const measure = document.createElement('canvas').getContext('2d');
+  measure.font = fontSize + 'px "Palatino Linotype", Palatino, Georgia, serif';
+
+  // Split into paragraphs
+  const paras = text.replace(/\r/g, '').split(/\n\n+/);
+  const allLines = [];
+  for (const p of paras) {
+    const clean = p.replace(/\n/g, ' ').trim();
+    if (!clean) continue;
+    allLines.push(...wrapText(measure, clean, maxW));
+    allLines.push(''); // paragraph break
+  }
+  if (allLines.length && allLines[allLines.length - 1] === '') allLines.pop();
+
+  const pages = [];
+  let i = 0;
+  let pageIndex = 0;
+  while (i < allLines.length) {
+    let yBudget = H - margin * 2;
+    if (pageIndex === 0 && title) {
+      yBudget -= CONFIG.pageTitleSize * 2.2;
+      if (isFirst) yBudget -= CONFIG.dropCapSize * 0.55;
+    }
+    const maxLines = Math.floor(yBudget / lineH);
+    const chunk = [];
+    let used = 0;
+    while (i < allLines.length && used < maxLines) {
+      chunk.push(allLines[i]);
+      used++;
+      i++;
+    }
+    // Don't leave orphan blank
+    while (chunk.length && chunk[chunk.length - 1] === '') chunk.pop();
+    if (chunk.length) {
+      pages.push(chunk.join('\n'));
+      pageIndex++;
+    } else {
+      break;
+    }
+  }
+  return pages.length ? pages : [text];
+}
+
+function buildFlatPages() {
+  flatPages = [];
+  for (let si = 0; si < STORIES.length; si++) {
+    const story = STORIES[si];
+    let texts = [];
+    for (const chunk of story.pages) {
+      if (typeof chunk === 'string' && chunk.length > 600) {
+        texts.push(...autoPaginate(chunk, { title: story.title, isFirst: texts.length === 0 }));
+      } else if (typeof chunk === 'string') {
+        // Still run through paginate for safety
+        const parts = autoPaginate(chunk, { title: story.title, isFirst: texts.length === 0 });
+        texts.push(...parts);
+      }
+    }
+    for (let pi = 0; pi < texts.length; pi++) {
+      flatPages.push({
+        storyIndex: si,
+        localPage: pi,
+        text: texts[pi],
+        isFirst: pi === 0,
+        title: story.title
+      });
+    }
+  }
+  totalPages = flatPages.length;
+}
+
+function drawPageContent(pageInfo, parchmentBase) {
+  const W = CONFIG.pageCanvasW, H = CONFIG.pageCanvasH;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(parchmentBase, 0, 0);
+
+  const margin = CONFIG.pageMargin;
+  const maxW = W - margin * 2;
+  const ink = '#3b2a1a';
+  const blood = '#7a1616';
+  const fontSize = CONFIG.pageFontSize;
+  const lineH = fontSize * 1.55;
+  let y = margin + 28;
+
+  if (pageInfo.isFirst) {
+    ctx.font = '600 ' + CONFIG.pageTitleSize + 'px "Palatino Linotype", Palatino, Georgia, serif';
+    ctx.fillStyle = blood;
+    ctx.textAlign = 'center';
+    ctx.globalAlpha = 0.92;
+    ctx.fillText(pageInfo.title.toUpperCase(), W / 2, y);
+    ctx.textAlign = 'left';
+    ctx.globalAlpha = 1;
+    y += CONFIG.pageTitleSize * 1.8;
+    ctx.strokeStyle = 'rgba(122,22,22,0.35)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(W * 0.28, y - 12);
+    ctx.lineTo(W * 0.72, y - 12);
+    ctx.stroke();
+  }
+
+  ctx.font = fontSize + 'px "Palatino Linotype", Palatino, Georgia, serif';
+  const lines = [];
+  for (const rl of pageInfo.text.split('\n')) {
+    if (rl === '') { lines.push(''); continue; }
+    lines.push(...wrapText(ctx, rl, maxW));
+  }
+
+  let usedDrop = false;
+  for (let li = 0; li < lines.length; li++) {
+    if (y > H - margin - lineH) break;
+    if (lines[li] === '') { y += lineH * 0.55; continue; }
+
+    if (pageInfo.isFirst && !usedDrop) {
+      const ch = lines[li].charAt(0);
+      let rest = lines[li].slice(1);
+      if (rest.charAt(0) === ' ') rest = rest.slice(1);
+
+      ctx.font = '700 ' + CONFIG.dropCapSize + 'px "Palatino Linotype", Palatino, Georgia, serif';
+      ctx.fillStyle = blood;
+      ctx.fillText(ch, margin, y + CONFIG.dropCapSize * 0.78);
+      const dcW = ctx.measureText(ch).width + 10;
+      ctx.font = fontSize + 'px "Palatino Linotype", Palatino, Georgia, serif';
+
+      const sideW = maxW - dcW;
+      let pool = rest;
+      let consume = li + 1;
+      while (consume < lines.length && lines[consume] !== '') {
+        pool += ' ' + lines[consume];
+        consume++;
+      }
+      const sideLines = wrapText(ctx, pool, sideW);
+      const rows = Math.max(2, Math.ceil((CONFIG.dropCapSize * 0.85) / lineH));
+      for (let r = 0; r < rows; r++) {
+        const t = sideLines[r] || '';
+        const yy = y + fontSize + r * lineH;
+        let x = margin + dcW;
+        const words = t.split(' ').filter(Boolean);
+        for (let wi = 0; wi < words.length; wi++) {
+          const jy = yy + (hash2(wi, r) - 0.5) * 1.4;
+          ctx.globalAlpha = 0.88 + hash2(wi, li) * 0.12;
+          ctx.fillStyle = ink;
+          ctx.fillText(words[wi], x, jy);
+          x += ctx.measureText(words[wi] + ' ').width;
+        }
+        ctx.globalAlpha = 1;
+      }
+      const leftover = sideLines.slice(rows).join(' ');
+      y += rows * lineH + 4;
+      usedDrop = true;
+      li = consume - 1;
+      if (leftover) {
+        const extra = wrapText(ctx, leftover, maxW);
+        for (const el of extra) {
+          drawJustified(ctx, [el], y + fontSize, lineH, maxW, ink, true);
+          y += lineH;
+        }
+      }
+      continue;
+    }
+
+    drawJustified(ctx, [lines[li]], y + fontSize, lineH, maxW, ink, true);
+    y += lineH;
+  }
+
+  // Low-opacity noise so ink doesn't look like a screenshot
+  const nimg = ctx.getImageData(0, 0, W, H);
+  for (let i = 0; i < nimg.data.length; i += 4) {
+    const n = (hash2((i / 4) % W, (i / 4 / W) | 0) - 0.5) * 8;
+    nimg.data[i] = clamp(nimg.data[i] + n, 0, 255);
+    nimg.data[i + 1] = clamp(nimg.data[i + 1] + n * 0.8, 0, 255);
+    nimg.data[i + 2] = clamp(nimg.data[i + 2] + n * 0.5, 0, 255);
+  }
+  ctx.putImageData(nimg, 0, 0);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.anisotropy = 4;
+  return tex;
+}
+
+/* =============================================================================
+   GEOMETRY BUILDERS
+   ============================================================================= */
+function disposeObject(obj) {
+  obj.traverse(function (c) {
+    if (c.geometry) c.geometry.dispose();
+    if (c.material) {
+      const mats = Array.isArray(c.material) ? c.material : [c.material];
+      mats.forEach(function (m) {
+        if (m.map) m.map.dispose();
+        if (m.bumpMap) m.bumpMap.dispose();
+        if (m.roughnessMap) m.roughnessMap.dispose();
+        if (m.alphaMap) m.alphaMap.dispose();
+        if (m.displacementMap) m.displacementMap.dispose();
+        m.dispose();
+      });
+    }
+  });
+}
+
+function makeCoverMaterial() {
+  return new THREE.MeshStandardMaterial({
+    map: leatherMap,
+    bumpMap: leatherBump,
+    bumpScale: 0.035,
+    roughnessMap: leatherRough,
+    roughness: 0.85,
+    metalness: 0.05,
+    color: 0xffffff
+  });
+}
+
+function buildSpineBands(parent) {
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0x1a1210,
+    roughness: 0.7,
+    metalness: 0.15,
+    map: leatherMap,
+    bumpMap: leatherBump,
+    bumpScale: 0.02
+  });
+  const bandCount = 5;
+  for (let i = 0; i < bandCount; i++) {
+    const y = -CONFIG.bookH * 0.38 + i * (CONFIG.bookH * 0.76) / (bandCount - 1);
+    const band = new THREE.Mesh(
+      new THREE.BoxGeometry(CONFIG.coverThick + 0.02, 0.045, CONFIG.bookD + 0.02),
+      mat
+    );
+    band.position.set(-CONFIG.bookW / 2 - CONFIG.coverThick * 0.15, y, 0);
+    parent.add(band);
+  }
+}
+
+function makeSpineTitleTexture() {
+  const W = 128, H = 512;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#1a1210';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.save();
+  ctx.translate(W / 2, H / 2);
+  ctx.rotate(-Math.PI / 2);
+  const title = 'THE REDDENING';
+  ctx.font = 'bold 22px "Palatino Linotype", Palatino, Georgia, serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  // Metallic silver gradient with oxidation in recesses
+  const grd = ctx.createLinearGradient(0, -12, 0, 12);
+  grd.addColorStop(0, '#8a9098');
+  grd.addColorStop(0.35, '#d0d4d8');
+  grd.addColorStop(0.5, '#f0f2f4');
+  grd.addColorStop(0.65, '#9aa0a8');
+  grd.addColorStop(1, '#3a3e44');
+  ctx.fillStyle = grd;
+  ctx.fillText(title, 0, 0);
+
+  // Edge erosion / flaking — punch dark holes along glyphs
+  ctx.globalCompositeOperation = 'destination-out';
+  for (let i = 0; i < 80; i++) {
+    const x = rand(-140, 140);
+    const y = rand(-14, 14);
+    if (hash2(i, 2) > 0.55) {
+      ctx.beginPath();
+      ctx.arc(x, y, rand(0.5, 2.2), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.globalCompositeOperation = 'source-over';
+
+  // Dark oxidize recesses
+  ctx.globalCompositeOperation = 'multiply';
+  ctx.fillStyle = 'rgba(20,18,16,0.45)';
+  ctx.fillRect(-160, -20, 320, 40);
+  ctx.restore();
+
+  const tex = new THREE.CanvasTexture(c);
+  return tex;
+}
+
+function buildClasp(parent) {
+  const iron = new THREE.MeshStandardMaterial({
+    map: ironMap,
+    color: 0x3a3a40,
+    metalness: 0.85,
+    roughness: 0.45
+  });
+  claspPivot = new THREE.Group();
+  // Fore-edge, below the seal so they don't overlap
+  claspPivot.position.set(CONFIG.bookW / 2 - 0.02, -CONFIG.bookH * 0.28, CONFIG.coverThick / 2 + 0.01);
+
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.28, 0.025), iron);
+  // Bevel illusion via second slightly smaller plate
+  const plate2 = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.24, 0.03), iron);
+  plate2.position.z = 0.005;
+
+  const hasp = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 0.02), iron);
+  hasp.position.set(0.08, 0, 0.02);
+
+  // Residue in joint
+  const resMat = new THREE.MeshStandardMaterial({
+    color: 0x2a0a08, roughness: 0.9, metalness: 0, emissive: 0x1a0505, emissiveIntensity: 0.1
+  });
+  const residue = new THREE.Mesh(new THREE.SphereGeometry(0.015, 6, 6), resMat);
+  residue.scale.set(1.5, 0.6, 0.8);
+  residue.position.set(0.04, -0.08, 0.02);
+
+  claspPivot.add(plate, plate2, hasp, residue);
+  parent.add(claspPivot);
+}
+
+function buildCornerBosses(parent, zSign) {
+  const iron = new THREE.MeshStandardMaterial({
+    map: ironMap, color: 0x2e2e32, metalness: 0.9, roughness: 0.4
+  });
+  const positions = [
+    [-CONFIG.bookW / 2 + 0.12, CONFIG.bookH / 2 - 0.12],
+    [CONFIG.bookW / 2 - 0.12, CONFIG.bookH / 2 - 0.12],
+    [-CONFIG.bookW / 2 + 0.12, -CONFIG.bookH / 2 + 0.12],
+    [CONFIG.bookW / 2 - 0.12, -CONFIG.bookH / 2 + 0.12]
+  ];
+  positions.forEach(function (p) {
+    const boss = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.03), iron);
+    boss.position.set(p[0], p[1], zSign * (CONFIG.bookD / 2 + 0.01));
+    // Simple bevel: smaller top
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.07, 0.015), iron);
+    cap.position.z = zSign * 0.015;
+    boss.add(cap);
+    parent.add(boss);
+  });
+}
+
+function makeSealMaterial() {
+  return new THREE.MeshStandardMaterial({
+    map: sealColorMap,
+    color: 0xffffff,
+    roughness: 0.62,
+    metalness: 0.0,
+    emissive: 0x000000,
+    emissiveIntensity: 0,
+    bumpMap: sealBumpMap,
+    bumpScale: 0.1,
+    side: THREE.DoubleSide
+  });
+}
+
+/** Simple round wax disc with a stamped V. half: -1 left, 1 right, 0 whole. */
+function buildSealGeometry(half) {
+  const group = new THREE.Group();
+  const R = CONFIG.sealSize / 2;
+
+  // Face — CircleGeometry UVs put the V front-and-center
+  let faceGeo;
+  if (half === 0) {
+    faceGeo = new THREE.CircleGeometry(R, 48);
+  } else {
+    const thetaStart = half < 0 ? Math.PI / 2 : -Math.PI / 2;
+    faceGeo = new THREE.CircleGeometry(R, 32, thetaStart, Math.PI);
+  }
+  const face = new THREE.Mesh(faceGeo, makeSealMaterial());
+  face.position.z = 0.018;
+  group.add(face);
+
+  // Thin wax body behind the face (no V texture — solid wax color)
+  const bodyMat = new THREE.MeshStandardMaterial({
+    color: 0x7a1212,
+    roughness: 0.65,
+    metalness: 0,
+    emissive: 0x000000,
+    emissiveIntensity: 0
+  });
+  let bodyGeo;
+  if (half === 0) {
+    bodyGeo = new THREE.CylinderGeometry(R, R * 0.98, 0.032, 48);
+  } else {
+    const thetaStart = half < 0 ? Math.PI / 2 : -Math.PI / 2;
+    bodyGeo = new THREE.CylinderGeometry(R, R * 0.98, 0.032, 32, 1, false, thetaStart, Math.PI);
+  }
+  bodyGeo.rotateX(Math.PI / 2);
+  const body = new THREE.Mesh(bodyGeo, bodyMat);
+  group.add(body);
+
+  return group;
+}
+
+function buildWaxFlecks() {
+  // Intentionally empty — seal stays clean
+}
+
+function buildBook() {
+  bookGroup = new THREE.Group();
+
+  // Page block — materials: +x,-x,+y,-y,+z,-z
+  // Fore-edge & head/tail get lined edge texture; faces under pages are paper.
+  const edgeMat = new THREE.MeshStandardMaterial({
+    map: pageEdgeMap, roughness: 0.9, metalness: 0, color: 0xffffff
+  });
+  const paperMat = new THREE.MeshStandardMaterial({
+    color: 0xd4c4a0, roughness: 0.95, metalness: 0
+  });
+  const paperMatBack = paperMat.clone();
+  pageBlock = new THREE.Mesh(
+    new THREE.BoxGeometry(CONFIG.bookW - 0.06, CONFIG.bookH - 0.06, CONFIG.bookD - CONFIG.coverThick * 2),
+    [edgeMat, edgeMat, edgeMat, edgeMat, paperMat, paperMatBack]
+  );
+  pageBlock.position.z = 0;
+  bookGroup.add(pageBlock);
+
+  // Back cover
+  const back = new THREE.Mesh(
+    new THREE.BoxGeometry(CONFIG.bookW, CONFIG.bookH, CONFIG.coverThick),
+    makeCoverMaterial()
+  );
+  back.position.z = -CONFIG.bookD / 2 + CONFIG.coverThick / 2;
+  bookGroup.add(back);
+  buildCornerBosses(bookGroup, -1);
+
+  // Cover group — origin AT THE SPINE
+  coverGroup = new THREE.Group();
+  coverGroup.position.set(-CONFIG.bookW / 2, 0, CONFIG.bookD / 2 - CONFIG.coverThick / 2);
+
+  const front = new THREE.Mesh(
+    new THREE.BoxGeometry(CONFIG.bookW, CONFIG.bookH, CONFIG.coverThick),
+    makeCoverMaterial()
+  );
+  front.position.x = CONFIG.bookW / 2;
+  front.name = 'cover';
+  coverGroup.add(front);
+
+  // Corner bosses on front (local space)
+  const iron = new THREE.MeshStandardMaterial({
+    map: ironMap, color: 0x2e2e32, metalness: 0.9, roughness: 0.4
+  });
+  [[0.12, CONFIG.bookH / 2 - 0.12], [CONFIG.bookW - 0.12, CONFIG.bookH / 2 - 0.12],
+   [0.12, -CONFIG.bookH / 2 + 0.12], [CONFIG.bookW - 0.12, -CONFIG.bookH / 2 + 0.12]].forEach(function (p) {
+    const boss = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.03), iron);
+    boss.position.set(p[0], p[1], CONFIG.coverThick / 2 + 0.01);
+    coverGroup.add(boss);
+  });
+
+  buildClasp(coverGroup);
+
+  // Seal
+  sealGroup = new THREE.Group();
+  sealGroup.position.set(CONFIG.bookW / 2, CONFIG.sealY, CONFIG.coverThick / 2 + 0.02);
+  sealGroup.name = 'seal';
+
+  const wholeSeal = buildSealGeometry(0);
+  wholeSeal.name = 'sealWhole';
+  sealGroup.add(wholeSeal);
+
+  sealHalfL = buildSealGeometry(-1);
+  sealHalfR = buildSealGeometry(1);
+  sealHalfL.visible = false;
+  sealHalfR.visible = false;
+  sealGroup.add(sealHalfL, sealHalfR);
+
+  coverGroup.add(sealGroup);
+  buildWaxFlecks();
+
+  bookGroup.add(coverGroup);
+
+  // Spine decorations — hidden while open so they don't clip the page
+  spineGroup = new THREE.Group();
+  const spineTitleTex = makeSpineTitleTexture();
+  const spineTitle = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.12, 1.1),
+    new THREE.MeshStandardMaterial({
+      map: spineTitleTex, transparent: true, roughness: 0.4, metalness: 0.7,
+      color: 0xffffff
+    })
+  );
+  spineTitle.position.set(-CONFIG.bookW / 2 - CONFIG.coverThick * 0.5 - 0.01, 0.05, 0);
+  spineTitle.rotation.y = -Math.PI / 2;
+  spineGroup.add(spineTitle);
+  buildSpineBands(spineGroup);
+  bookGroup.add(spineGroup);
+
+  // Contact shadow
+  const shadowC = document.createElement('canvas');
+  shadowC.width = shadowC.height = 256;
+  const sctx = shadowC.getContext('2d');
+  const sg = sctx.createRadialGradient(128, 128, 20, 128, 128, 120);
+  sg.addColorStop(0, 'rgba(0,0,0,0.55)');
+  sg.addColorStop(0.4, 'rgba(0,0,0,0.25)');
+  sg.addColorStop(1, 'rgba(0,0,0,0)');
+  sctx.fillStyle = sg;
+  sctx.fillRect(0, 0, 256, 256);
+  const shadowTex = new THREE.CanvasTexture(shadowC);
+  contactShadow = new THREE.Mesh(
+    new THREE.PlaneGeometry(CONFIG.bookW * 1.8, CONFIG.bookH * 1.5),
+    new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false, opacity: 0.9 })
+  );
+  contactShadow.rotation.x = -Math.PI / 2;
+  contactShadow.position.y = -CONFIG.bookH / 2 - 0.02;
+  bookGroup.add(contactShadow);
+
+  scene.add(bookGroup);
+}
+
+function buildDust() {
+  const N = 180;
+  const geo = new THREE.BufferGeometry();
+  const pos = new Float32Array(N * 3);
+  const vel = [];
+  for (let i = 0; i < N; i++) {
+    pos[i * 3] = rand(-3, 3);
+    pos[i * 3 + 1] = rand(-2, 3);
+    pos[i * 3 + 2] = rand(-3, 3);
+    vel.push({ x: rand(-0.02, 0.02), y: rand(0.01, 0.04), z: rand(-0.02, 0.02) });
+  }
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.userData.vel = vel;
+  dustPoints = new THREE.Points(
+    geo,
+    new THREE.PointsMaterial({
+      color: 0xc4b090, size: 0.015, transparent: true, opacity: 0.35,
+      depthWrite: false, sizeAttenuation: true
+    })
+  );
+  scene.add(dustPoints);
+}
+
+function buildPages() {
+  [pageMesh, underPageMesh, turningPageMesh].forEach(function (m) {
+    if (m) {
+      bookGroup.remove(m);
+      disposeObject(m);
+    }
+  });
+  pageMesh = underPageMesh = turningPageMesh = null;
+  parchmentMaps.forEach(function (t) { if (t && t.dispose) t.dispose(); });
+  parchmentMaps = [];
+
+  const parch = makeParchmentTextures();
+  const pageW = CONFIG.bookW - 0.08;
+  const pageH = CONFIG.bookH - 0.08;
+  // Flush against the front of the page block
+  const blockFront = (CONFIG.bookD - CONFIG.coverThick * 2) / 2;
+  const frontZ = blockFront + 0.004;
+
+  function makePageMesh(pageInfo, zOff) {
+    const tex = pageInfo
+      ? drawPageContent(pageInfo, parch.canvas)
+      : parch.map;
+    if (pageInfo) parchmentMaps.push(tex);
+
+    const mat = new THREE.MeshStandardMaterial({
+      map: tex,
+      roughness: 0.9,
+      metalness: 0,
+      side: THREE.FrontSide,
+      depthWrite: true,
+      polygonOffset: true,
+      polygonOffsetFactor: -4,
+      polygonOffsetUnits: -4
+    });
+    const geo = new THREE.PlaneGeometry(pageW, pageH, CONFIG.segmentsX, CONFIG.segmentsY);
+    const pos = geo.attributes.position;
+    const orig = new Float32Array(pos.array.length);
+    orig.set(pos.array);
+    geo.userData.orig = orig;
+    geo.userData.pageW = pageW;
+
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(0, 0, frontZ + (zOff || 0));
+    mesh.renderOrder = 2;
+    return mesh;
+  }
+
+  const info = flatPages[currentPage] || null;
+  pageMesh = makePageMesh(info, 0);
+  pageMesh.name = 'page';
+  pageMesh.visible = bookState === 'open' || bookState === 'turning' || bookState === 'closing';
+  bookGroup.add(pageMesh);
+  updateUI();
+}
+
+/* =============================================================================
+   PAGE CURL DEFORMATION
+   ============================================================================= */
+function applyPageCurl(mesh, progress, direction) {
+  // progress 0..1, direction 1 = right-to-left turn
+  const pos = mesh.geometry.attributes.position;
+  const orig = mesh.geometry.userData.orig;
+  const pageW = mesh.geometry.userData.pageW;
+  const curlR = pageW * 0.35;
+
+  for (let i = 0; i < pos.count; i++) {
+    const ox = orig[i * 3];
+    const oy = orig[i * 3 + 1];
+    const oz = orig[i * 3 + 2];
+
+    // Normalize x from 0 (spine) to 1 (fore-edge) for right page
+    // Right page local: x from -pageW/2 to pageW/2, spine at -pageW/2
+    const u = (ox + pageW / 2) / pageW; // 0 at spine, 1 at edge
+    const turn = progress;
+
+    // Curl front travels from fore-edge toward spine
+    const curlStart = 1 - turn;
+    let x = ox, y = oy, z = oz;
+
+    if (u > curlStart) {
+      const dist = (u - curlStart) * pageW;
+      const angle = dist / curlR;
+      const cx = -pageW / 2 + curlStart * pageW;
+      x = cx + Math.sin(angle) * curlR;
+      z = (1 - Math.cos(angle)) * curlR;
+      // Lift and slight Y warp for organic feel
+      y = oy + Math.sin(angle * 0.5) * 0.02 * Math.sin(oy * 3);
+    }
+
+    // After halfway, whole page rotates toward left
+    if (turn > 0.5) {
+      const t2 = (turn - 0.5) * 2;
+      const pivot = -pageW / 2;
+      const lx = x - pivot;
+      const ang = -t2 * Math.PI;
+      const rx = Math.cos(ang) * lx - Math.sin(ang) * z;
+      const rz = Math.sin(ang) * lx + Math.cos(ang) * z;
+      x = rx + pivot;
+      z = rz;
+    }
+
+    pos.setXYZ(i, x, y, z);
+  }
+  pos.needsUpdate = true;
+  mesh.geometry.computeVertexNormals();
+}
+
+function resetPageGeometry(mesh) {
+  if (!mesh || !mesh.geometry.userData.orig) return;
+  const pos = mesh.geometry.attributes.position;
+  pos.array.set(mesh.geometry.userData.orig);
+  pos.needsUpdate = true;
+  mesh.geometry.computeVertexNormals();
+}
+
+/* =============================================================================
+   ANIMATIONS
+   ============================================================================= */
+function startSealCrack() {
+  bookState = 'cracking';
+  sealBroken = true;
+  hintEl.classList.remove('visible');
+
+  const whole = sealGroup.getObjectByName('sealWhole');
+  if (whole) whole.visible = false;
+  sealHalfL.visible = true;
+  sealHalfR.visible = true;
+  sealHalfL.rotation.set(0, 0, 0);
+  sealHalfR.rotation.set(0, 0, 0);
+  sealHalfL.scale.set(1, 1, 1);
+  sealHalfR.scale.set(1, 1, 1);
+
+  const t0 = performance.now();
+  sealAnim = { t0: t0, dur: CONFIG.sealCrackMs };
+
+  // Spawn shards
+  spawnShards();
+}
+
+function spawnShards() {
+  const mat = new THREE.MeshPhysicalMaterial({
+    color: 0xa81b1b, roughness: 0.3, clearcoat: 0.5,
+    emissive: 0x6b0f0f, emissiveIntensity: 0.08
+  });
+  const n = 8;
+  for (let i = 0; i < n; i++) {
+    const geo = new THREE.TetrahedronGeometry(rand(0.02, 0.045), 0);
+    const m = new THREE.Mesh(geo, mat.clone());
+    const wp = new THREE.Vector3();
+    sealGroup.getWorldPosition(wp);
+    m.position.copy(wp);
+    m.position.x += rand(-0.1, 0.1);
+    m.position.y += rand(-0.1, 0.05);
+    m.userData.vel = new THREE.Vector3(rand(-0.4, 0.4), rand(0.2, 0.8), rand(0.2, 0.6));
+    m.userData.spin = new THREE.Vector3(rand(-5, 5), rand(-5, 5), rand(-5, 5));
+    m.userData.born = performance.now();
+    scene.add(m);
+    shardMeshes.push(m);
+  }
+}
+
+function startCoverOpen() {
+  bookState = 'opening';
+  hintEl.classList.remove('visible');
+  const t0 = performance.now();
+  coverAnim = {
+    t0: t0,
+    dur: CONFIG.coverOpenMs,
+    from: coverAngle,
+    to: CONFIG.openAngle,
+    opening: true
+  };
+  targetCamDist = CONFIG.openCamDist;
+  targetPolar = CONFIG.openCamPolar;
+  targetAzimuth = CONFIG.openCamAzimuth;
+
+  spawnDustPuff(
+    new THREE.Vector3(-CONFIG.bookW / 2, 0, CONFIG.bookD / 2),
+    30
+  );
+
+  buildPages();
+  if (pageMesh) pageMesh.visible = false;
+}
+
+function startCoverClose() {
+  if (bookState !== 'open') return;
+  bookState = 'closing';
+  coverAnim = {
+    t0: performance.now(),
+    dur: CONFIG.coverCloseMs,
+    from: coverAngle,
+    to: 0,
+    opening: false
+  };
+  targetCamDist = CONFIG.camDist;
+  targetPolar = CONFIG.camPolar;
+  targetAzimuth = CONFIG.camAzimuth;
+  closeBtn.classList.remove('visible');
+  uiTop.classList.remove('visible');
+  navPrev.style.display = 'none';
+  navNext.style.display = 'none';
+}
+
+function spawnDustPuff(origin, count) {
+  for (let i = 0; i < count; i++) {
+    dustPuffs.push({
+      x: origin.x, y: origin.y, z: origin.z,
+      vx: rand(-0.3, 0.5), vy: rand(0.1, 0.5), vz: rand(-0.2, 0.4),
+      life: 1, decay: rand(0.6, 1.2)
+    });
+  }
+}
+
+function startPageTurn(dir) {
+  if (bookState !== 'open') return;
+  if (dir > 0 && currentPage >= totalPages - 1) return;
+  if (dir < 0 && currentPage <= 0) return;
+
+  if (dir < 0) {
+    // Flip back without curl
+    currentPage = Math.max(0, currentPage - 1);
+    buildPages();
+    if (pageMesh) pageMesh.visible = true;
+    return;
+  }
+
+  bookState = 'turning';
+  pageAnim = {
+    t0: performance.now(),
+    dur: CONFIG.pageTurnMs,
+    dir: dir,
+    fromPage: currentPage
+  };
+
+  // Page beneath shows the next leaf while current curls away
+  const parch = makeParchmentTextures();
+  const nextInfo = flatPages[currentPage + 1];
+  if (nextInfo && pageMesh) {
+    const pageW = pageMesh.geometry.userData.pageW;
+    const pageH = CONFIG.bookH - 0.08;
+    const tex = drawPageContent(nextInfo, parch.canvas);
+    parchmentMaps.push(tex);
+    const mat = new THREE.MeshStandardMaterial({
+      map: tex,
+      roughness: 0.9,
+      metalness: 0,
+      side: THREE.FrontSide,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2
+    });
+    const geo = new THREE.PlaneGeometry(pageW, pageH, 1, 1);
+    underPageMesh = new THREE.Mesh(geo, mat);
+    underPageMesh.position.copy(pageMesh.position);
+    underPageMesh.position.z -= 0.003;
+    underPageMesh.renderOrder = 1;
+    bookGroup.add(underPageMesh);
+  }
+
+  turningPageMesh = pageMesh;
+  pageMesh = null;
+}
+
+function updateUI() {
+  const info = flatPages[currentPage];
+  const title = info ? info.title : (STORIES[currentStory] && STORIES[currentStory].title) || '';
+  storyTitleEl.textContent = title;
+  pageCounterEl.textContent = (currentPage + 1) + ' / ' + totalPages;
+}
+
+/* =============================================================================
+   INTERACTION
+   ============================================================================= */
+function onPointerDown(e) {
+  const x = e.clientX !== undefined ? e.clientX : (e.touches && e.touches[0].clientX);
+  const y = e.clientY !== undefined ? e.clientY : (e.touches && e.touches[0].clientY);
+  pointerDownPos = { x: x, y: y };
+  pointerMoved = false;
+  isDragging = true;
+  dragPrevX = x;
+  dragPrevY = y;
+  document.body.classList.add('dragging');
+  if (e.touches) touchStartX = e.touches[0].clientX;
+}
+
+function onPointerMove(e) {
+  const x = e.clientX !== undefined ? e.clientX : (e.touches && e.touches[0].clientX);
+  const y = e.clientY !== undefined ? e.clientY : (e.touches && e.touches[0].clientY);
+  if (x === undefined) return;
+
+  // Idle parallax
+  targetParallaxX = (x / window.innerWidth - 0.5) * CONFIG.parallaxAmp;
+  targetParallaxY = (y / window.innerHeight - 0.5) * CONFIG.parallaxAmp;
+
+  if (!isDragging) return;
+  const dx = x - dragPrevX;
+  const dy = y - dragPrevY;
+  if (Math.abs(dx) + Math.abs(dy) > 4) pointerMoved = true;
+  dragPrevX = x;
+  dragPrevY = y;
+
+  if (bookState === 'closed' || bookState === 'open') {
+    targetAzimuth -= dx * 0.005;
+    targetPolar = clamp(targetPolar + dy * 0.004, CONFIG.polarMin, CONFIG.polarMax);
+  }
+}
+
+function onPointerUp(e) {
+  isDragging = false;
+  document.body.classList.remove('dragging');
+
+  const x = e.clientX !== undefined ? e.clientX : (e.changedTouches && e.changedTouches[0].clientX);
+  const y = e.clientY !== undefined ? e.clientY : (e.changedTouches && e.changedTouches[0].clientY);
+
+  if (e.changedTouches && touchStartX) {
+    const swipe = x - touchStartX;
+    if (Math.abs(swipe) > 50 && bookState === 'open') {
+      if (swipe < 0) startPageTurn(1);
+      else startPageTurn(-1);
+      return;
+    }
+  }
+
+  if (pointerMoved || x === undefined) return;
+  handleClick(x, y);
+}
+
+function handleClick(clientX, clientY) {
+  mouseNDC.x = (clientX / window.innerWidth) * 2 - 1;
+  mouseNDC.y = -(clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(mouseNDC, camera);
+
+  if (bookState === 'closed') {
+    const hits = raycaster.intersectObjects(coverGroup.children, true);
+    if (hits.length) {
+      hintEl.classList.remove('visible');
+      startCoverOpen();
+      return;
+    }
+  }
+
+  if (bookState === 'open') {
+    if (pageMesh) {
+      const hits = raycaster.intersectObject(pageMesh, true);
+      if (hits.length) {
+        startPageTurn(1);
+        return;
+      }
+    }
+  }
+}
+
+function onKey(e) {
+  if (e.key === 'ArrowRight') startPageTurn(1);
+  if (e.key === 'ArrowLeft') startPageTurn(-1);
+  if (e.key === 'Escape') startCoverClose();
+}
+
+function onResize() {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+/* =============================================================================
+   LIGHTS / SCENE
+   ============================================================================= */
+function setupLights() {
+  ambientLight = new THREE.AmbientLight(0x8a847c, CONFIG.ambientIntensity);
+  scene.add(ambientLight);
+
+  keyLight = new THREE.PointLight(CONFIG.keyColor, CONFIG.keyIntensity, 12, 2);
+  keyLight.position.set(-2.2, 2.5, 3.5);
+  scene.add(keyLight);
+
+  // Soft fill so leather grain reads without killing mood
+  const fill = new THREE.DirectionalLight(0xc4b8a8, 0.95);
+  fill.position.set(1.5, 3, 2);
+  scene.add(fill);
+
+  rimLight = new THREE.DirectionalLight(CONFIG.rimColor, CONFIG.rimIntensity);
+  rimLight.position.set(2, 1, -3);
+  scene.add(rimLight);
+
+  sealLight = new THREE.PointLight(0xa81b1b, CONFIG.sealLightIntensity, 2.5, 2);
+  // Lives on the cover so it travels with the seal / broken halves
+  sealLight.position.set(CONFIG.bookW / 2, CONFIG.sealY, CONFIG.coverThick / 2 + 0.25);
+  coverGroup.add(sealLight);
+
+  // Faint red bleed on the *underside* of the open cover — not in the gutter
+  bounceLight = new THREE.PointLight(CONFIG.bounceColor, 0, 1.8, 2);
+  bounceLight.position.set(CONFIG.bookW * 0.45, 0, -CONFIG.coverThick * 0.5 - 0.08);
+  coverGroup.add(bounceLight);
+}
+
+function updateCamera(dt) {
+  azimuth = lerp(azimuth, targetAzimuth, CONFIG.orbitDamping);
+  polar = lerp(polar, targetPolar, CONFIG.orbitDamping);
+  camDist = lerp(camDist, targetCamDist, CONFIG.orbitDamping);
+  parallaxX = lerp(parallaxX, targetParallaxX, 0.06);
+  parallaxY = lerp(parallaxY, targetParallaxY, 0.06);
+
+  const x = camDist * Math.sin(polar) * Math.sin(azimuth) + parallaxX;
+  const y = camDist * Math.cos(polar) + parallaxY;
+  const z = camDist * Math.sin(polar) * Math.cos(azimuth);
+  camera.position.set(x, y, z);
+  const openAmt = clamp(-coverAngle / Math.abs(CONFIG.openAngle), 0, 1);
+  // Track the tipped page face when open
+  camera.lookAt(0, 0.05 + openAmt * 0.25, openAmt * 0.2);
+}
+
+/* =============================================================================
+   FRAME LOOP
+   ============================================================================= */
+function animate() {
+  requestAnimationFrame(animate);
+  const now = performance.now();
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const t = clock.elapsedTime;
+
+  // Hint
+  if (!hintShown && now - loadTime > CONFIG.hintDelay && bookState === 'closed') {
+    hintEl.classList.add('visible');
+    hintShown = true;
+  }
+
+  // Key flicker
+  const flicker = 1 + Math.sin(t * 7.3) * 0.06 + Math.sin(t * 13.1) * 0.04
+    + (hash2(Math.floor(t * 20), 1) - 0.5) * 0.08;
+  const openAmt = clamp(-coverAngle / Math.abs(CONFIG.openAngle), 0, 1);
+  // Soften key when book is open so parchment text stays readable
+  const keyTarget = CONFIG.keyIntensity * (openAmt > 0.5 ? 0.72 : 1);
+  keyLight.intensity = keyTarget * flicker;
+
+  // Seal light — stays with the intact wax
+  sealLight.intensity = CONFIG.sealLightIntensity * (0.85 + Math.sin(t * 2.2) * 0.15);
+
+  // Bounce when open
+  bounceLight.intensity = CONFIG.bounceIntensity * openAmt;
+
+  // Tip the whole book toward the camera so the page faces you when open
+  bookGroup.rotation.x = -openAmt * CONFIG.bookTip;
+
+  // Hide spine bands while open — they clip through the reading page
+  if (spineGroup) spineGroup.visible = openAmt < 0.25;
+
+  // Nudge open cover slightly behind the page plane (avoid burying text)
+  const coverBaseZ = CONFIG.bookD / 2 - CONFIG.coverThick / 2;
+  coverGroup.position.z = coverBaseZ - openAmt * 0.05;
+  // Warm only the paper faces under the open pages (+z / -z = indices 4,5)
+  if (pageBlock && pageBlock.material) {
+    const mats = Array.isArray(pageBlock.material) ? pageBlock.material : [pageBlock.material];
+    [4, 5].forEach(function (idx) {
+      if (mats[idx] && mats[idx].color) {
+        mats[idx].color.setRGB(
+          lerp(0.83, 0.95, openAmt * 0.35),
+          lerp(0.77, 0.88, openAmt * 0.3),
+          lerp(0.63, 0.72, openAmt * 0.2)
+        );
+      }
+    });
+  }
+
+  // Seal crack anim — hinge outward from seam
+  if (sealAnim) {
+    const p = clamp((now - sealAnim.t0) / sealAnim.dur, 0, 1);
+    const e = easeOutBack(p);
+    sealHalfL.rotation.z = e * CONFIG.sealCrackAngle;
+    sealHalfR.rotation.z = -e * CONFIG.sealCrackAngle;
+    sealHalfL.rotation.y = e * 0.35;
+    sealHalfR.rotation.y = -e * 0.35;
+    // Scale pop recoil
+    const pop = 1 + Math.sin(p * Math.PI) * 0.12;
+    sealHalfL.scale.setScalar(pop);
+    sealHalfR.scale.setScalar(pop);
+    // Drop slightly
+    sealHalfL.position.y = -e * 0.04;
+    sealHalfR.position.y = -e * 0.04;
+    sealHalfL.position.z = e * 0.05;
+    sealHalfR.position.z = e * 0.05;
+    if (p >= 1) sealAnim = null;
+  }
+
+  // Cover swing
+  if (coverAnim) {
+    const p = clamp((now - coverAnim.t0) / coverAnim.dur, 0, 1);
+    let e = easeInOutCubic(p);
+    if (coverAnim.opening && p > 0.85) {
+      // Slight overshoot then settle
+      const op = (p - 0.85) / 0.15;
+      e = easeInOutCubic(0.85) + (1 - easeInOutCubic(0.85)) * easeOutBack(Math.min(op, 1));
+      const over = CONFIG.openAngle * (1 + CONFIG.openOvershoot * Math.sin(Math.min(op, 1) * Math.PI));
+      coverAngle = lerp(coverAnim.from, over, Math.min(e, 1));
+      if (p >= 1) coverAngle = coverAnim.to;
+    } else {
+      coverAngle = lerp(coverAnim.from, coverAnim.to, e);
+    }
+    coverGroup.rotation.y = coverAngle;
+
+    // Clasp swings free
+    if (claspPivot) {
+      claspPivot.rotation.y = openAmt * 0.9;
+      claspPivot.rotation.z = openAmt * 0.4;
+    }
+
+    if (coverAnim.opening && p > 0.45) {
+      if (pageMesh) pageMesh.visible = true;
+    }
+
+    if (p >= 1) {
+      coverAngle = coverAnim.to;
+      coverGroup.rotation.y = coverAngle;
+      if (coverAnim.opening) {
+        bookState = 'open';
+        closeBtn.classList.add('visible');
+        uiTop.classList.add('visible');
+        navPrev.style.display = 'inline';
+        navNext.style.display = 'inline';
+        navPrev.classList.add('visible');
+        navNext.classList.add('visible');
+        if (pageMesh) pageMesh.visible = true;
+      } else {
+        bookState = 'closed';
+        if (pageMesh) pageMesh.visible = false;
+      }
+      coverAnim = null;
+    }
+  }
+
+  // Page turn
+  if (pageAnim && pageAnim.dir > 0 && turningPageMesh) {
+    const p = clamp((now - pageAnim.t0) / pageAnim.dur, 0, 1);
+    const e = easeInOutCubic(p);
+    applyPageCurl(turningPageMesh, e, 1);
+
+    // Soft shadow on the page beneath
+    if (underPageMesh && underPageMesh.material) {
+      const shadowStr = Math.sin(e * Math.PI) * 0.18;
+      underPageMesh.material.color.setRGB(1 - shadowStr, 1 - shadowStr * 1.1, 1 - shadowStr * 1.2);
+    }
+
+    if (p >= 1) {
+      currentPage = Math.min(totalPages - 1, pageAnim.fromPage + 1);
+      bookGroup.remove(turningPageMesh);
+      disposeObject(turningPageMesh);
+      turningPageMesh = null;
+      if (underPageMesh) {
+        bookGroup.remove(underPageMesh);
+        disposeObject(underPageMesh);
+        underPageMesh = null;
+      }
+      pageAnim = null;
+      bookState = 'open';
+      buildPages();
+      if (pageMesh) pageMesh.visible = true;
+    }
+  }
+
+  // Shards
+  for (let i = shardMeshes.length - 1; i >= 0; i--) {
+    const m = shardMeshes[i];
+    const age = (now - m.userData.born) / CONFIG.shardLifeMs;
+    m.userData.vel.y -= 1.8 * dt;
+    m.position.addScaledVector(m.userData.vel, dt);
+    m.rotation.x += m.userData.spin.x * dt;
+    m.rotation.y += m.userData.spin.y * dt;
+    if (m.material) m.material.opacity = clamp(1 - age, 0, 1);
+    if (m.material) m.material.transparent = true;
+    if (age >= 1) {
+      scene.remove(m);
+      m.geometry.dispose();
+      m.material.dispose();
+      shardMeshes.splice(i, 1);
+    }
+  }
+
+  // Dust motes
+  if (dustPoints) {
+    const pos = dustPoints.geometry.attributes.position;
+    const vel = dustPoints.geometry.userData.vel;
+    for (let i = 0; i < pos.count; i++) {
+      pos.setX(i, pos.getX(i) + vel[i].x * dt);
+      pos.setY(i, pos.getY(i) + vel[i].y * dt);
+      pos.setZ(i, pos.getZ(i) + vel[i].z * dt);
+      if (pos.getY(i) > 3.5) pos.setY(i, -2);
+    }
+    pos.needsUpdate = true;
+  }
+
+  updateCamera(dt);
+  renderer.render(scene, camera);
+}
+
+/* =============================================================================
+   INIT
+   ============================================================================= */
+function init() {
+  canvasEl = document.getElementById('c');
+  hintEl = document.getElementById('hint');
+  closeBtn = document.getElementById('close-btn');
+  storyTitleEl = document.getElementById('story-title');
+  pageCounterEl = document.getElementById('page-counter');
+  uiTop = document.getElementById('ui-top');
+  navPrev = document.getElementById('nav-prev');
+  navNext = document.getElementById('nav-next');
+
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x9a9288);
+  scene.fog = new THREE.FogExp2(0x9a9288, 0.015);
+
+  camera = new THREE.PerspectiveCamera(CONFIG.fov, window.innerWidth / window.innerHeight, 0.1, 100);
+  clock = new THREE.Clock();
+  raycaster = new THREE.Raycaster();
+  mouseNDC = new THREE.Vector2();
+
+  renderer = new THREE.WebGLRenderer({ canvas: canvasEl, antialias: true, alpha: false });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.physicallyCorrectLights = true;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.25;
+
+  // Textures
+  const leather = makeLeatherTextures();
+  leatherMap = leather.map;
+  leatherBump = leather.bump;
+  leatherRough = leather.rough;
+  pageEdgeMap = makePageEdgeTexture();
+  ironMap = makeIronTexture();
+  const sealTex = makeSealBumpTexture();
+  sealColorMap = sealTex.map;
+  sealBumpMap = sealTex.bump;
+
+  buildBook();
+  setupLights();
+  buildDust();
+  buildFlatPages();
+
+  // Events
+  window.addEventListener('resize', onResize);
+  window.addEventListener('keydown', onKey);
+  canvasEl.addEventListener('mousedown', onPointerDown);
+  window.addEventListener('mousemove', onPointerMove);
+  window.addEventListener('mouseup', onPointerUp);
+  canvasEl.addEventListener('touchstart', onPointerDown, { passive: true });
+  window.addEventListener('touchmove', onPointerMove, { passive: true });
+  window.addEventListener('touchend', onPointerUp);
+  closeBtn.addEventListener('click', function (e) {
+    e.stopPropagation();
+    startCoverClose();
+  });
+  navNext.addEventListener('click', function (e) {
+    e.stopPropagation();
+    startPageTurn(1);
+  });
+  navPrev.addEventListener('click', function (e) {
+    e.stopPropagation();
+    startPageTurn(-1);
+  });
+
+  loadTime = performance.now();
+  updateCamera(0);
+  animate();
+}
+
+init();
+</script>
+</body>
+</html>
