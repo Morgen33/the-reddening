@@ -6,6 +6,7 @@ import { clsx } from "clsx";
 
 const LINKS = [
   { href: "/", label: "Chronicle" },
+  { href: "/tome", label: "The Tome" },
   { href: "/cast", label: "Cast" },
   { href: "/reddening", label: "The Reddening" },
   { href: "/bloodline", label: "Bloodline" },
