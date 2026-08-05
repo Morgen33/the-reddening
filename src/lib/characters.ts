@@ -53,17 +53,23 @@ export async function getTurningsForGlobe() {
   const charMap = Object.fromEntries(chars.map((c) => [c.id, c]));
 
   const fromChapters = sealed
-    .filter((c) => c.status === "sealed" && c.occurredYear != null)
+    .filter((c) => c.status === "sealed")
     .map((c) => {
       const turned = c.turnedId ? charMap[c.turnedId] : null;
       const lat = c.lat ?? turned?.turnedLat ?? null;
       const lng = c.lng ?? turned?.turnedLng ?? null;
       if (lat == null || lng == null) return null;
+      // Place alone pins the globe; year is preferred for the scrubber.
+      const year =
+        c.occurredYear ??
+        turned?.turnedYear ??
+        (c.sealedAt ? Number(c.sealedAt.slice(0, 4)) : null) ??
+        new Date().getFullYear();
       return {
         id: c.id,
         slug: c.slug,
         title: c.title,
-        year: c.occurredYear!,
+        year,
         place: c.place ?? turned?.turnedPlace ?? "Unknown",
         lat,
         lng,
@@ -86,14 +92,13 @@ export async function getTurningsForGlobe() {
       (c) =>
         c.turnedLat != null &&
         c.turnedLng != null &&
-        c.turnedYear != null &&
         !chapterTurnedIds.has(c.id)
     )
     .map((c) => ({
       id: `char-${c.id}`,
       slug: `cast/${c.handle}`,
       title: `The turning of ${c.name}`,
-      year: c.turnedYear!,
+      year: c.turnedYear ?? new Date().getFullYear(),
       place: c.turnedPlace ?? "Unknown",
       lat: c.turnedLat!,
       lng: c.turnedLng!,

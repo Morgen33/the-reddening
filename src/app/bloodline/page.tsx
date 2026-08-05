@@ -42,7 +42,7 @@ export default async function BloodlinePage() {
         <p className="font-ledger mb-2 text-xs tracking-[0.2em] text-gilt uppercase">
           From whom
         </p>
-        <h2 className="font-display mb-3 text-4xl text-vellum">The Bloodline</h2>
+        <h2 className="font-display mb-3 text-4xl text-vellum">Rodokmen</h2>
         <p className="mb-10 max-w-prose text-vellum-dim">
           The globe answers where. This answers from whom — the structure the
           mythology hangs on.

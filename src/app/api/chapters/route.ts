@@ -82,6 +82,19 @@ export async function POST(req: Request) {
     const lat = coords.lat;
     const lng = coords.lng;
 
+    const placeUnresolved =
+      typeof place === "string" &&
+      place.trim().length > 0 &&
+      (lat == null || lng == null);
+
+    const placeRequiredError = NextResponse.json(
+      {
+        error:
+          "Could not place that location on the globe. Try a clearer city or place name (e.g. New York, Prague, Los Angeles).",
+      },
+      { status: 400 }
+    );
+
     // Update existing chapter
     if (existingId) {
       const rows = await db
@@ -114,6 +127,10 @@ export async function POST(req: Request) {
           : status === "draft"
             ? "draft"
             : current.status;
+
+      if (nextStatus === "sealed" && placeUnresolved) {
+        return placeRequiredError;
+      }
 
       await db
         .update(chapters)
@@ -152,7 +169,14 @@ export async function POST(req: Request) {
         id: existingId,
         slug,
         numeral: current.numeral,
+        lat,
+        lng,
+        place: place ?? null,
       });
+    }
+
+    if (status === "sealed" && placeUnresolved) {
+      return placeRequiredError;
     }
 
     let slug = body.slug || slugify(title);
@@ -213,7 +237,14 @@ export async function POST(req: Request) {
       });
     }
 
-    return NextResponse.json({ id, slug, numeral });
+    return NextResponse.json({
+      id,
+      slug,
+      numeral,
+      lat,
+      lng,
+      place: place ?? null,
+    });
   } catch (err) {
     console.error(err);
     return NextResponse.json(

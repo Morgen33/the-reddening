@@ -21,7 +21,7 @@ export default async function CastPage() {
       <RedThread variant="cast" />
       <div className="mx-auto max-w-6xl">
         <p className="font-ledger mb-2 text-xs tracking-[0.2em] text-gilt uppercase">
-          The Cast
+          Postavy
         </p>
         <h2 className="font-display mb-3 text-4xl text-vellum">Dossiers</h2>
         <p className="mb-6 max-w-prose text-vellum-dim">

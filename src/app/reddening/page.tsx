@@ -20,7 +20,7 @@ export default async function ReddeningPage() {
           Where the blood went
         </p>
         <h2 className="font-display text-4xl text-vellum md:text-5xl">
-          The Reddening
+          Země
         </h2>
         <p className="mt-3 max-w-prose text-vellum-dim">
           The Earth itself. Every turning is a pulse; every sire-bond a blood
