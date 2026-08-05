@@ -54,15 +54,22 @@
     0%, 100% { opacity: 0.55; }
     50% { opacity: 1; }
   }
-  #close-btn, #nav-prev, #nav-next {
+  #close-btn, #nav-prev, #nav-next, #exit-link {
     pointer-events: auto; background: none; border: none;
     font-family: inherit; font-size: 0.68rem; letter-spacing: 0.3em;
-    text-transform: uppercase; color: rgba(200, 180, 160, 0.45);
+    text-transform: uppercase; color: rgba(200, 180, 160, 0.55);
     cursor: pointer; padding: 0.5rem 0.8rem;
-    opacity: 0; transition: opacity 0.5s ease, color 0.25s ease;
+    opacity: 1; transition: opacity 0.5s ease, color 0.25s ease;
+    text-decoration: none;
   }
+  #close-btn { opacity: 0; }
   #close-btn.visible, #nav-prev.visible, #nav-next.visible { opacity: 1; }
-  #close-btn:hover, #nav-prev:hover, #nav-next:hover { color: rgba(200, 180, 160, 0.85); }
+  #close-btn:hover, #nav-prev:hover, #nav-next:hover, #exit-link:hover {
+    color: rgba(200, 180, 160, 0.9);
+  }
+  #exit-link {
+    color: rgba(168, 55, 55, 0.75);
+  }
   #nav-row { display: flex; gap: 1rem; }
 </style>
 </head>
@@ -75,6 +82,7 @@
     <div id="page-counter"></div>
   </div>
   <div id="ui-bottom">
+    <a id="exit-link" href="/">← Kronika</a>
     <button id="close-btn" type="button">Close</button>
     <div id="hint">Click to open</div>
     <div id="nav-row">
@@ -1819,6 +1827,19 @@ function init() {
     e.stopPropagation();
     startCoverClose();
   });
+  var exitLink = document.getElementById('exit-link');
+  if (exitLink) {
+    exitLink.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      // Leave the book: break out of the iframe when embedded in /tome
+      if (window.top && window.top !== window) {
+        window.top.location.href = '/';
+      } else {
+        window.location.href = '/';
+      }
+    });
+  }
   navNext.addEventListener('click', function (e) {
     e.stopPropagation();
     startPageTurn(1);
