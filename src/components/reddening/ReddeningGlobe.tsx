@@ -720,7 +720,7 @@ export function ReddeningGlobe({ points }: { points: TurningPoint[] }) {
         <div className="pointer-events-none absolute top-4 left-4 right-4 flex justify-between gap-4">
           <div>
             <p className="font-ledger text-xs tracking-[0.18em] text-gilt uppercase">
-              The Reddening
+              Pokousaná
             </p>
             <p className="mt-1 font-ledger text-[0.65rem] tracking-wider text-vellum-dim uppercase">
               {visibleCount} {visibleCount === 1 ? "vein" : "veins"} · grows

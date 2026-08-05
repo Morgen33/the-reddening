@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "The Tome · The Reddening",
+  title: "Svazek · Pokousaná",
   description: "Open the sealed book. Break nothing — only read.",
 };
 

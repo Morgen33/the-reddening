@@ -39,11 +39,34 @@ function providerHint(): string {
 }
 
 type PortraitModelMode = "auto" | "pro" | "dev";
+type PortraitProviderMode = "auto" | "fal" | "hf" | "replicate";
 
 function portraitModelMode(): PortraitModelMode {
   const mode = (process.env.PORTRAIT_MODEL || "auto").toLowerCase();
   if (mode === "pro" || mode === "dev" || mode === "auto") return mode;
   return "auto";
+}
+
+function portraitProviderMode(): PortraitProviderMode {
+  const mode = (process.env.PORTRAIT_PROVIDER || "auto").toLowerCase();
+  if (
+    mode === "fal" ||
+    mode === "hf" ||
+    mode === "replicate" ||
+    mode === "auto"
+  ) {
+    return mode;
+  }
+  return "auto";
+}
+
+function isBillingLockError(err: unknown): boolean {
+  const text = formatProviderError(err, "provider").toLowerCase();
+  return (
+    text.includes("exhausted balance") ||
+    text.includes("user is locked") ||
+    text.includes("top up your balance")
+  );
 }
 
 function falVariants(): FalVariant[] {
@@ -111,6 +134,29 @@ function extractFalImageUrl(data: {
   image?: { url?: string };
 }): string | undefined {
   return data.images?.[0]?.url ?? data.image?.url;
+}
+
+function formatProviderError(err: unknown, label: string): string {
+  if (!(err instanceof Error)) return `${label} failed`;
+
+  const withBody = err as Error & {
+    status?: number;
+    body?: { detail?: unknown; message?: string };
+  };
+  const detail = withBody.body?.detail;
+  const detailText =
+    typeof detail === "string"
+      ? detail
+      : detail != null
+        ? JSON.stringify(detail).slice(0, 240)
+        : withBody.body?.message;
+
+  if (detailText) {
+    const status = withBody.status ? ` (${withBody.status})` : "";
+    return `${label}${status}: ${detailText}`;
+  }
+
+  return err.message || `${label} failed`;
 }
 
 async function generateWithFal({
@@ -294,7 +340,9 @@ async function generateWithHuggingFace({
 
 /**
  * Identity-preserving photoreal vampire portrait.
- * Prefers fal Kontext Pro, then fal Kontext-dev, then Replicate, then HF (free).
+ * Provider order depends on PORTRAIT_PROVIDER:
+ * - auto: fal → Replicate → HF (free)
+ * - hf / fal / replicate: that provider only
  * Throws when no provider is configured or generation fails.
  */
 export async function generateVampirePortrait({
@@ -313,8 +361,36 @@ export async function generateVampirePortrait({
   }
 
   const errors: string[] = [];
+  const provider = portraitProviderMode();
+  const tryFal = provider === "auto" || provider === "fal";
+  const tryReplicate = provider === "auto" || provider === "replicate";
+  const tryHf = provider === "auto" || provider === "hf";
 
-  if (process.env.FAL_KEY) {
+  // Free path first when explicitly selected, or when auto and only HF is set.
+  const preferHf =
+    provider === "hf" || (provider === "auto" && hfToken() && !process.env.FAL_KEY);
+
+  const runHf = async () => {
+    if (!tryHf || !hfToken()) return null;
+    try {
+      return await generateWithHuggingFace({
+        imageBuffer,
+        contentType,
+        mortalUrl,
+      });
+    } catch (err) {
+      console.error("huggingface portrait failed", err);
+      errors.push(formatProviderError(err, "huggingface"));
+      return null;
+    }
+  };
+
+  if (preferHf) {
+    const hf = await runHf();
+    if (hf) return hf;
+  }
+
+  if (tryFal && process.env.FAL_KEY) {
     for (const variant of falVariants()) {
       try {
         return await generateWithFal({
@@ -325,33 +401,24 @@ export async function generateVampirePortrait({
         });
       } catch (err) {
         console.error(`fal ${variant} portrait failed`, err);
-        errors.push(
-          err instanceof Error ? err.message : `fal ${variant} failed`
-        );
+        errors.push(formatProviderError(err, `fal ${variant}`));
+        if (isBillingLockError(err)) break;
       }
     }
   }
 
-  if (process.env.REPLICATE_API_TOKEN) {
+  if (tryReplicate && process.env.REPLICATE_API_TOKEN) {
     try {
       return await generateWithReplicate(mortalUrl);
     } catch (err) {
       console.error("replicate portrait failed", err);
-      errors.push(err instanceof Error ? err.message : "replicate failed");
+      errors.push(formatProviderError(err, "replicate"));
     }
   }
 
-  if (hfToken()) {
-    try {
-      return await generateWithHuggingFace({
-        imageBuffer,
-        contentType,
-        mortalUrl,
-      });
-    } catch (err) {
-      console.error("huggingface portrait failed", err);
-      errors.push(err instanceof Error ? err.message : "huggingface failed");
-    }
+  if (!preferHf) {
+    const hf = await runHf();
+    if (hf) return hf;
   }
 
   throw new PortraitGenerationError(

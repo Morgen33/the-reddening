@@ -167,7 +167,14 @@ export function Scriptorium({
         throw new Error(data.error || "Could not save chapter");
       }
       const data = await res.json();
-      router.push(status === "sealed" ? `/chapter/${data.slug}` : "/write");
+      if (status === "sealed" && place.trim()) {
+        // Place was sealed with coords — send her straight to the new pin.
+        router.push("/reddening");
+      } else if (status === "sealed") {
+        router.push(`/chapter/${data.slug}`);
+      } else {
+        router.push("/write");
+      }
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
@@ -186,7 +193,7 @@ export function Scriptorium({
     <div className="mx-auto grid max-w-6xl gap-8 px-6 py-12 lg:grid-cols-[1fr_280px]">
       <div>
         <p className="font-ledger mb-2 text-xs tracking-[0.2em] text-gilt uppercase">
-          The Scriptorium
+          The Skriptorium
         </p>
         <h2 className="font-display mb-6 text-4xl text-vellum">
           {chapterId ? "Revise this turning" : "Write a turning"}
@@ -344,6 +351,9 @@ export function Scriptorium({
               placeholder="New York, Prague, Los Angeles…"
               className="w-full border border-gilt/30 bg-ash px-3 py-2 text-vellum focus:border-arterial focus:outline-none"
             />
+            <span className="mt-1 block text-xs text-vellum-dim">
+              On seal, this pins the Země globe.
+            </span>
           </label>
           <label>
             <span className="font-ledger mb-1 block text-[0.65rem] tracking-[0.15em] text-gilt uppercase">

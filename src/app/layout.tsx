@@ -39,9 +39,9 @@ const fraktur = UnifrakturCook({
 });
 
 export const metadata: Metadata = {
-  title: "The Reddening",
+  title: "Pokousaná",
   description:
-    "A living chronicle of how our friends became vampires. Authored by Veronika.",
+    "Every soul has a life before the bite—and a legend after it. Authored by Veronika.",
 };
 
 export default function RootLayout({

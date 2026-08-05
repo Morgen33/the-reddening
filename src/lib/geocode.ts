@@ -68,9 +68,13 @@ export async function geocodePlace(
   const normalized = normalizePlace(place);
   if (KNOWN_PLACES[normalized]) return KNOWN_PLACES[normalized];
 
-  // Partial match: "harbor of New York" → new york
+  // Token / phrase match only — never substring ("place" must not hit "la").
+  const tokens = normalized.split(" ").filter(Boolean);
   for (const [key, coords] of Object.entries(KNOWN_PLACES)) {
-    if (normalized.includes(key) || key.includes(normalized)) {
+    const keyTokens = key.split(" ");
+    if (keyTokens.length === 1) {
+      if (tokens.includes(key)) return coords;
+    } else if (normalized.includes(key)) {
       return coords;
     }
   }
@@ -83,18 +87,21 @@ export async function geocodePlace(
 
     const res = await fetch(url.toString(), {
       headers: {
-        "User-Agent": "TheReddening/1.0 (chronicle globe)",
+        "User-Agent": "TheReddening/1.0 (chronicle globe; contact: the-reddening.vercel.app)",
         Accept: "application/json",
       },
-      next: { revalidate: 86400 },
+      // Geocode at seal-time — don't cache a failed empty result forever.
+      cache: "no-store",
     });
     if (!res.ok) return null;
     const data = (await res.json()) as { lat: string; lon: string }[];
     if (!data[0]) return null;
-    return {
+    const resolved = {
       lat: Number(data[0].lat),
       lng: Number(data[0].lon),
     };
+    if (Number.isNaN(resolved.lat) || Number.isNaN(resolved.lng)) return null;
+    return resolved;
   } catch {
     return null;
   }

@@ -21,7 +21,7 @@ export default async function ChroniclePage() {
       <ScrollThread />
       <div className="mx-auto max-w-3xl">
         <p className="font-ledger mb-2 text-xs tracking-[0.2em] text-gilt uppercase">
-          The Chronicle
+          Kronika
         </p>
         <h2 className="font-display mb-3 text-4xl text-vellum md:text-5xl">
           Turnings set in ink

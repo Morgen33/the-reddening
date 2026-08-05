@@ -32,7 +32,7 @@ export default async function ChapterPage({
             href="/"
             className="font-ledger text-xs tracking-[0.15em] text-gilt uppercase hover:text-arterial"
           >
-            ← Chronicle
+            ← Kronika
           </Link>
           {author && (
             <Link
