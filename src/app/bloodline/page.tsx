@@ -1,4 +1,5 @@
 import { getAllCharacters, getBonds } from "@/lib/characters";
+import { getCharacterPortraitUrls } from "@/lib/character-images";
 import { BloodlineTree } from "@/components/bloodline/BloodlineTree";
 import { RedThread } from "@/components/atmosphere/RedThread";
 
@@ -18,14 +19,19 @@ export default async function BloodlinePage() {
   try {
     const chars = await getAllCharacters();
     const b = await getBonds();
-    nodes = chars.map((c) => ({
-      id: c.id,
-      handle: c.handle,
-      name: c.name,
-      status: c.status,
-      sireId: c.sireId,
-      portraitUrl: c.portraitVampireUrl || c.portraitMortalUrl,
-    }));
+    nodes = await Promise.all(
+      chars.map(async (c) => {
+        const urls = await getCharacterPortraitUrls(c);
+        return {
+          id: c.id,
+          handle: c.handle,
+          name: c.name,
+          status: c.status,
+          sireId: c.sireId,
+          portraitUrl: urls[0] ?? null,
+        };
+      })
+    );
     bonds = b.map((x) => ({
       fromId: x.fromId,
       toId: x.toId,

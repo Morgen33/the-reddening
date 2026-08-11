@@ -86,6 +86,14 @@ async function migrate() {
       created_at TEXT NOT NULL DEFAULT (current_timestamp)
     );
 
+    CREATE TABLE IF NOT EXISTS character_images (
+      id TEXT PRIMARY KEY,
+      character_id TEXT NOT NULL REFERENCES characters(id),
+      url TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (current_timestamp)
+    );
+
     CREATE TABLE IF NOT EXISTS portrait_cache (
       id TEXT PRIMARY KEY,
       image_hash TEXT NOT NULL,
@@ -102,6 +110,7 @@ async function wipe() {
     DELETE FROM recordings;
     DELETE FROM marginalia;
     DELETE FROM portrait_cache;
+    DELETE FROM character_images;
     DELETE FROM chapters;
     DELETE FROM bonds;
     DELETE FROM characters;

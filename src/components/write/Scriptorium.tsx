@@ -171,7 +171,8 @@ export function Scriptorium({
         // Place was sealed with coords — send her straight to the new pin.
         router.push("/reddening");
       } else if (status === "sealed") {
-        router.push(`/chapter/${data.slug}`);
+        // Sealed chapters are written into the Svazek.
+        router.push("/tome");
       } else {
         router.push("/write");
       }
@@ -198,6 +199,10 @@ export function Scriptorium({
         <h2 className="font-display mb-6 text-4xl text-vellum">
           {chapterId ? "Revise this turning" : "Write a turning"}
         </h2>
+        <p className="mb-6 max-w-prose text-sm text-vellum-dim">
+          When you seal a chapter, it is set in the Kronika and written into the
+          Svazek — the book itself.
+        </p>
 
         <div className="mb-8 flex flex-wrap gap-2">
           {modes.map((m) => (
@@ -352,7 +357,8 @@ export function Scriptorium({
               className="w-full border border-gilt/30 bg-ash px-3 py-2 text-vellum focus:border-arterial focus:outline-none"
             />
             <span className="mt-1 block text-xs text-vellum-dim">
-              On seal, this pins the Země globe.
+              On seal, this pins the Země globe. The chapter is always written
+              into the Svazek.
             </span>
           </label>
           <label>

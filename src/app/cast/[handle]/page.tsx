@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { PortraitSlider } from "@/components/cast/PortraitSlider";
-import { PortraitUpload } from "@/components/cast/PortraitUpload";
+import { CharacterGallery } from "@/components/cast/CharacterGallery";
+import { CharacterImageUpload } from "@/components/cast/CharacterImageUpload";
 import { getCharacterDossier } from "@/lib/characters";
+import { getCharacterImages, getCharacterPortraitUrls } from "@/lib/character-images";
 import { COPY } from "@/lib/copy";
 import { isAuthor } from "@/lib/auth";
 
@@ -19,6 +20,8 @@ export default async function DossierPage({
 
   const { character, sire, bonds, appearances } = dossier;
   const author = await isAuthor();
+  const galleryRows = await getCharacterImages(character.id);
+  const portraitUrls = await getCharacterPortraitUrls(character);
 
   return (
     <div className="ink-wipe mx-auto max-w-5xl px-6 py-12">
@@ -31,12 +34,13 @@ export default async function DossierPage({
 
       <div className="grid gap-10 md:grid-cols-[minmax(0,320px)_1fr]">
         <div>
-          <PortraitSlider
-            mortalSrc={character.portraitMortalUrl}
-            vampireSrc={character.portraitVampireUrl}
-            alt={character.name}
-          />
-          {author && <PortraitUpload characterId={character.id} />}
+          <CharacterGallery images={portraitUrls} alt={character.name} />
+          {author && (
+            <CharacterImageUpload
+              characterId={character.id}
+              images={galleryRows.map((r) => ({ id: r.id, url: r.url }))}
+            />
+          )}
         </div>
 
         <div>

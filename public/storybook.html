@@ -166,14 +166,11 @@ const CONFIG = {
 };
 
 /* =============================================================================
-   STORIES — swap real content here
-   Paste full story text into `pages` as a single string (or array of strings);
-   autoPaginate() will split long strings into page-sized chunks.
+   STORIES — dedication is always first; sealed chapters load from /api/tome/stories
    ============================================================================= */
-const STORIES = [
-  {
-    title: "For Veronika",
-    pages: [
+const DEDICATION = {
+  title: "For Veronika",
+  pages: [
 `Happy Birthday to my bestest friend, Veronika.
 
 I wanted to make you something that was more than just a regular birthday present. I wanted to give you a place where all the crazy, beautiful stories inside your head could actually live and grow into an entire world of their own.
@@ -193,54 +190,24 @@ Happy Birthday, my beautiful Veronika.
 I love you more than I could ever properly put into words.
 
 — Morgen`
-    ]
-  },
-  {
-    title: "The Letter Unopened",
-    pages: [
-`My dearest sister,
+  ]
+};
 
-I write to you from a carriage that will not stop. The driver does not answer when I knock upon the partition, and the windows show only fog pressed flat against the glass like breath held too long. I boarded at dusk, thinking myself bound for the coast. The ticket in my coat pocket names no station I recognize.
+/** Mutable; filled by loadStories() before the book builds its pages. */
+let STORIES = [DEDICATION];
 
-There is a woman seated across from me who has not blinked since the hour struck. Her gloves are the color of dried roses. When she smiles, I see nothing behind her teeth but night. She asked, quite gently, whether I had ever tasted a memory that was not my own. I said I had not. She seemed disappointed, as if I had failed a courtesy.
-
-Outside, the road has turned to water. I can hear it licking the wheels. The woman offers me a thimble of something dark and sweet. She says it will help me sleep through the crossing. I have not drunk it. I have not slept. My reflection in the window has begun to lag behind my movements by half a second, and I fear that if I look away, it will not catch up.
-
-If this letter reaches you, burn it. Do not open the small parcel that travels with it. The wax upon that parcel is warm still, and I did not seal it myself.
-
-Yours, in what remains of daylight,
-E.`
-    ]
-  },
-  {
-    title: "Beneath the Chapel Floor",
-    pages: [
-`I woke with soil in my mouth and a hymn in my ears that no living choir was singing. The stones above me were damp with something that was not rain. My fingers found the edge of a coffin lid already ajar, as though whoever buried me had expected me back.
-
-The chapel was empty except for the smell of old iron and lilies left too long. Candle stubs still smoked in their sockets. On the altar lay a silver cup, overturned, and a stain that had dried in the shape of a hand reaching for the door. I touched my throat and found two small mouths where none had been.
-
-Outside, the village bells were ringing the wrong hour. Dogs would not look at me. A child pointed and was pulled indoors so quickly the door bruised the frame. I walked to the well and saw, in the black circle of water, a face that wore my features like a borrowed coat — too neat, too still, smiling with a patience I have never owned.
-
-I remember hunger then, sudden and precise as a key turning. Not for bread. For the warmth moving behind shuttered windows. I pressed my palm to the chapel door and left a print the color of sealing wax. By morning it will be gone, or the door will be. I am not certain which would be kinder.
-
-If you find these pages beneath the floorboards, do not dig further. The thing that wrote them is listening for the scrape of your nails.`
-    ]
-  },
-  {
-    title: "The Red Hour",
-    pages: [
-`Journal, the third night of the red moon.
-
-They told us not to look up. They said the color was only dust in the upper air, a trick of the harvest fires. But the light that fell through my shutters painted the floorboards the shade of a fresh bruise, and every mirror in the house turned its face to the wall of its own accord.
-
-I kept the watch as instructed: salt on the sill, iron nail above the latch, prayer said without conviction. At the stroke of what should have been midnight, the clocks all stopped together. In the silence I heard someone counting upstairs — soft, careful, as if numbering pearls. There is no one upstairs. There has been no one upstairs since Mother left for the fen and did not return with the tide.
-
-The counting reached thirteen and began again. I opened the bedroom door. The corridor was the length of a held breath. At the far end stood a figure in Mother's traveling cloak, only taller, and where the hood should have shown her hair there was only a wet darkness that dripped without sound onto the runner. It raised a hand in greeting. The nails were the wrong length.
-
-I shut the door. I am writing this by the last inch of candle. The counting has started once more, closer now, just beyond the wood. When the candle dies I will know whether the salt held. If these lines end mid-sentence, assume it did not. Assume the red hour found its way in. Assume I answered when it knocked, because something in me — something that has been waiting since the first drop of that wrong-colored moonlight — wanted very badly to open the door.`
-    ]
+async function loadStories() {
+  try {
+    const res = await fetch('/api/tome/stories', { cache: 'no-store' });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (Array.isArray(data.stories) && data.stories.length > 0) {
+      STORIES = data.stories;
+    }
+  } catch (err) {
+    console.warn('Could not load chronicle into the tome', err);
   }
-];
+}
 
 /* =============================================================================
    ALL DECLARATIONS — top of script to avoid TDZ (do not move below handlers)
@@ -1804,7 +1771,7 @@ function animate() {
 /* =============================================================================
    INIT
    ============================================================================= */
-function init() {
+async function init() {
   canvasEl = document.getElementById('c');
   hintEl = document.getElementById('hint');
   closeBtn = document.getElementById('close-btn');
@@ -1813,6 +1780,8 @@ function init() {
   uiTop = document.getElementById('ui-top');
   navPrev = document.getElementById('nav-prev');
   navNext = document.getElementById('nav-next');
+
+  await loadStories();
 
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x9a9288);

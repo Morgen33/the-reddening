@@ -116,6 +116,18 @@ export const marginalia = sqliteTable("marginalia", {
     .default(sql`(current_timestamp)`),
 });
 
+export const characterImages = sqliteTable("character_images", {
+  id: text("id").primaryKey(),
+  characterId: text("character_id")
+    .notNull()
+    .references(() => characters.id),
+  url: text("url").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`(current_timestamp)`),
+});
+
 export const portraitCache = sqliteTable("portrait_cache", {
   id: text("id").primaryKey(),
   imageHash: text("image_hash").notNull(),
