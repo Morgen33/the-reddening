@@ -38,6 +38,8 @@ yarn-error.log*
 local.db
 local.db-*
 
+# local portrait turner
+tools/local-portrait/.venv/
 # vercel
 .vercel
 

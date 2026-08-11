@@ -25,8 +25,8 @@ export default async function CastPage() {
         </p>
         <h2 className="font-display mb-3 text-4xl text-vellum">Dossiers</h2>
         <p className="mb-6 max-w-prose text-vellum-dim">
-          Mortal on one side of the thread. Vampire on the other. Drag to watch
-          them turn.
+          Likenesses and bonds. Seal a chapter in the Skriptorium and it is
+          written into the Svazek.
         </p>
 
         {author && (

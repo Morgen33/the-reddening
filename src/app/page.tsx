@@ -28,7 +28,12 @@ export default async function ChroniclePage() {
         </h2>
         <p className="mb-10 max-w-prose text-vellum-dim">
           Each chapter is a bite remembered: who, when, where — and what was
-          said before the Space ended.
+          said before the Space ended. Seal one in the Skriptorium and it is
+          also written into the{" "}
+          <Link href="/tome" className="text-gilt underline hover:text-arterial">
+            Svazek
+          </Link>
+          .
         </p>
         <hr className="gilt-rule mb-10" />
 
