@@ -102,6 +102,7 @@ export function BloodlineTree({
     }[] = [];
 
     let xOffset = 0;
+    const padTop = 100;
     for (const root of forest) {
       const h = hierarchy(root);
       const layoutTree = tree<HierarchyDatum>().nodeSize([140, 120]);
@@ -114,18 +115,18 @@ export function BloodlineTree({
         nodes: desc.map((d) => ({
           data: d.data,
           x: d.x + shift,
-          y: d.y + 60,
+          y: d.y + padTop,
           depth: d.depth,
         })),
         links: rooted.links().map((l) => ({
           source: {
             x: l.source.x + shift,
-            y: l.source.y + 60,
+            y: l.source.y + padTop,
             data: l.source.data,
           },
           target: {
             x: l.target.x + shift,
-            y: l.target.y + 60,
+            y: l.target.y + padTop,
             data: l.target.data,
           },
         })),
@@ -137,7 +138,7 @@ export function BloodlineTree({
 
   const allLaid = layout.flatMap((l) => l.nodes);
   const width = Math.max(800, ...allLaid.map((n) => n.x + 120));
-  const height = Math.max(500, ...allLaid.map((n) => n.y + 120));
+  const height = Math.max(500, ...allLaid.map((n) => n.y + 140));
   const maxDepth = Math.max(0, ...allLaid.map((n) => n.depth));
 
   const idSetRelated = useMemo(() => {
@@ -167,7 +168,7 @@ export function BloodlineTree({
   const posById = Object.fromEntries(allLaid.map((n) => [n.data.id, n]));
 
   return (
-    <div className="relative overflow-x-auto">
+    <div className="relative overflow-x-auto overflow-y-visible pb-2">
       {cycleWarning && (
         <p className="mb-4 text-sm text-gilt">
           A cycle was detected in the bloodline and gently unwound.
@@ -179,7 +180,7 @@ export function BloodlineTree({
       <svg
         width={width}
         height={height}
-        className="min-w-full"
+        className="min-w-full overflow-visible"
         role="img"
         aria-label="Bloodline tree"
       >
